@@ -10,7 +10,8 @@ let float_array =
     Ok ("[" ^ String.concat "," (Array.to_list str_arr) ^ "]")
   in
   let decode _str =
-    Ok (Array.of_list [0.0]) (* Placeholder *)
+    Ok (Array.of_list [ 0.0 ])
+    (* Placeholder *)
   in
   Caqti_type.(custom ~encode ~decode string)
 
@@ -25,8 +26,7 @@ let uuid =
   Caqti_type.(custom ~encode ~decode string)
 
 (* Helper to create a test embedding vector of given dimension *)
-let make_embedding dim value =
-  Array.make dim value
+let make_embedding dim value = Array.make dim value
 
 (* Test embedding insertion *)
 let test_record_embedding () =
@@ -36,9 +36,7 @@ let test_record_embedding () =
           let%lwt fen_id =
             Chessbuddy.Database.upsert_fen pool
               ~fen_text:"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
-              ~side_to_move:'w'
-              ~castling:"KQkq"
-              ~en_passant:None
+              ~side_to_move:'w' ~castling:"KQkq" ~en_passant:None
               ~material_signature:"PPPPPPPPPPPPPPPP"
             >|= check_ok "FEN creation failed"
           in
@@ -46,9 +44,7 @@ let test_record_embedding () =
           (* Record embedding *)
           let embedding = make_embedding 768 0.1 in
           let%lwt result =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id
-              ~embedding
+            Chessbuddy.Database.record_embedding pool ~fen_id ~embedding
               ~version:"test-v1"
           in
           check_ok "Embedding insertion failed" result;
@@ -56,97 +52,80 @@ let test_record_embedding () =
           (* Update with new embedding (same fen_id) *)
           let embedding2 = make_embedding 768 0.2 in
           let%lwt result2 =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id
-              ~embedding:embedding2
-              ~version:"test-v2"
+            Chessbuddy.Database.record_embedding pool ~fen_id
+              ~embedding:embedding2 ~version:"test-v2"
           in
           check_ok "Embedding update failed" result2;
           Lwt.return_unit))
 
 (* Test embedding dimension constraint *)
 let test_embedding_dimension_constraint () =
-  Alcotest_lwt.test_case "embedding dimension must be 768" `Quick (fun _switch () ->
+  Alcotest_lwt.test_case "embedding dimension must be 768" `Quick
+    (fun _switch () ->
       with_clean_db (fun pool ->
           (* Create a FEN position *)
           let%lwt fen_id =
             Chessbuddy.Database.upsert_fen pool
-              ~fen_text:"test/position/8/8/8/8/8/8 w - -"
-              ~side_to_move:'w'
-              ~castling:"-"
-              ~en_passant:None
-              ~material_signature:"TEST"
+              ~fen_text:"test/position/8/8/8/8/8/8 w - -" ~side_to_move:'w'
+              ~castling:"-" ~en_passant:None ~material_signature:"TEST"
             >|= check_ok "FEN creation failed"
           in
 
           (* Try to insert wrong dimension (512 instead of 768) *)
           let wrong_embedding = make_embedding 512 0.5 in
           let%lwt result =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id
-              ~embedding:wrong_embedding
-              ~version:"wrong-dim"
+            Chessbuddy.Database.record_embedding pool ~fen_id
+              ~embedding:wrong_embedding ~version:"wrong-dim"
           in
 
           (* Should fail with dimension error *)
           match result with
-          | Ok () ->
-              Alcotest.fail "Should have failed with dimension error"
+          | Ok () -> Alcotest.fail "Should have failed with dimension error"
           | Error err ->
               let err_msg = Caqti_error.show err in
               Alcotest.(check bool)
-                "Error message mentions dimension"
-                true
+                "Error message mentions dimension" true
                 (String.length err_msg > 0);
               Lwt.return_unit))
 
 (* Test vector similarity search - cosine distance *)
 let test_cosine_similarity () =
-  Alcotest_lwt.test_case "vector cosine similarity search" `Quick (fun _switch () ->
+  Alcotest_lwt.test_case "vector cosine similarity search" `Quick
+    (fun _switch () ->
       with_clean_db (fun pool ->
           (* Create two FEN positions with different embeddings *)
           let%lwt fen_id1 =
             Chessbuddy.Database.upsert_fen pool
-              ~fen_text:"position1/8/8/8/8/8/8/8 w - -"
-              ~side_to_move:'w'
-              ~castling:"-"
-              ~en_passant:None
-              ~material_signature:"POS1"
+              ~fen_text:"position1/8/8/8/8/8/8/8 w - -" ~side_to_move:'w'
+              ~castling:"-" ~en_passant:None ~material_signature:"POS1"
             >|= check_ok "FEN 1 creation failed"
           in
 
           let%lwt fen_id2 =
             Chessbuddy.Database.upsert_fen pool
-              ~fen_text:"position2/8/8/8/8/8/8/8 w - -"
-              ~side_to_move:'w'
-              ~castling:"-"
-              ~en_passant:None
-              ~material_signature:"POS2"
+              ~fen_text:"position2/8/8/8/8/8/8/8 w - -" ~side_to_move:'w'
+              ~castling:"-" ~en_passant:None ~material_signature:"POS2"
             >|= check_ok "FEN 2 creation failed"
           in
 
           (* Insert embeddings *)
           let%lwt () =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id:fen_id1
-              ~embedding:(make_embedding 768 0.1)
-              ~version:"v1"
+            Chessbuddy.Database.record_embedding pool ~fen_id:fen_id1
+              ~embedding:(make_embedding 768 0.1) ~version:"v1"
             >|= check_ok "Embedding 1 failed"
           in
 
           let%lwt () =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id:fen_id2
-              ~embedding:(make_embedding 768 0.9)
-              ~version:"v1"
+            Chessbuddy.Database.record_embedding pool ~fen_id:fen_id2
+              ~embedding:(make_embedding 768 0.9) ~version:"v1"
             >|= check_ok "Embedding 2 failed"
           in
 
           (* Query using raw SQL to test cosine similarity *)
           let query_cosine =
             let open Caqti_request.Infix in
-            float_array -->* Caqti_type.(t2 uuid float) @:-
-            {|
+            (float_array -->* Caqti_type.(t2 uuid float))
+            @:- {|
               SELECT fe.fen_id, fe.embedding <=> $1::vector as distance
               FROM fen_embeddings fe
               ORDER BY distance
@@ -156,7 +135,8 @@ let test_cosine_similarity () =
 
           let query_vector = make_embedding 768 0.15 in
           let* result =
-            Chessbuddy.Database.Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+            Chessbuddy.Database.Pool.use pool
+              (fun (module Db : Caqti_lwt.CONNECTION) ->
                 Db.collect_list query_cosine query_vector)
           in
 
@@ -165,45 +145,44 @@ let test_cosine_similarity () =
           Alcotest.(check int) "Got 2 results" 2 (List.length results);
 
           (* First result should be closer to 0.15 (fen_id1 with 0.1 embedding) *)
-          let (first_id, first_dist) = List.hd results in
-          Alcotest.(check uuid_testable) "First result is fen_id1" fen_id1 first_id;
-          Alcotest.(check bool) "First distance is smaller" true (first_dist < 1.0);
+          let first_id, first_dist = List.hd results in
+          Alcotest.(check uuid_testable)
+            "First result is fen_id1" fen_id1 first_id;
+          Alcotest.(check bool)
+            "First distance is smaller" true (first_dist < 1.0);
 
           Lwt.return_unit))
 
 (* Test vector L2 distance *)
 let test_l2_distance () =
-  Alcotest_lwt.test_case "vector L2 (Euclidean) distance" `Quick (fun _switch () ->
+  Alcotest_lwt.test_case "vector L2 (Euclidean) distance" `Quick
+    (fun _switch () ->
       with_clean_db (fun pool ->
           (* Create FEN with embedding *)
           let%lwt fen_id =
             Chessbuddy.Database.upsert_fen pool
-              ~fen_text:"test/l2/8/8/8/8/8/8 w - -"
-              ~side_to_move:'w'
-              ~castling:"-"
-              ~en_passant:None
-              ~material_signature:"L2TEST"
+              ~fen_text:"test/l2/8/8/8/8/8/8 w - -" ~side_to_move:'w'
+              ~castling:"-" ~en_passant:None ~material_signature:"L2TEST"
             >|= check_ok "FEN creation failed"
           in
 
           let%lwt () =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id
-              ~embedding:(make_embedding 768 0.5)
-              ~version:"v1"
+            Chessbuddy.Database.record_embedding pool ~fen_id
+              ~embedding:(make_embedding 768 0.5) ~version:"v1"
             >|= check_ok "Embedding failed"
           in
 
           (* Query using L2 distance *)
           let query_l2 =
             let open Caqti_request.Infix in
-            float_array -->! Caqti_type.float @:-
-            "SELECT embedding <-> $1::vector FROM fen_embeddings LIMIT 1"
+            (float_array -->! Caqti_type.float)
+            @:- "SELECT embedding <-> $1::vector FROM fen_embeddings LIMIT 1"
           in
 
           let query_vector = make_embedding 768 0.5 in
           let* result =
-            Chessbuddy.Database.Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+            Chessbuddy.Database.Pool.use pool
+              (fun (module Db : Caqti_lwt.CONNECTION) ->
                 Db.find query_l2 query_vector)
           in
 
@@ -219,48 +198,45 @@ let test_inner_product () =
       with_clean_db (fun pool ->
           let%lwt fen_id =
             Chessbuddy.Database.upsert_fen pool
-              ~fen_text:"test/ip/8/8/8/8/8/8 w - -"
-              ~side_to_move:'w'
-              ~castling:"-"
-              ~en_passant:None
-              ~material_signature:"IPTEST"
+              ~fen_text:"test/ip/8/8/8/8/8/8 w - -" ~side_to_move:'w'
+              ~castling:"-" ~en_passant:None ~material_signature:"IPTEST"
             >|= check_ok "FEN creation failed"
           in
 
           let%lwt () =
-            Chessbuddy.Database.record_embedding pool
-              ~fen_id
-              ~embedding:(make_embedding 768 1.0)
-              ~version:"v1"
+            Chessbuddy.Database.record_embedding pool ~fen_id
+              ~embedding:(make_embedding 768 1.0) ~version:"v1"
             >|= check_ok "Embedding failed"
           in
 
           (* Query using negative inner product *)
           let query_ip =
             let open Caqti_request.Infix in
-            float_array -->! Caqti_type.float @:-
-            "SELECT embedding <#> $1::vector FROM fen_embeddings LIMIT 1"
+            (float_array -->! Caqti_type.float)
+            @:- "SELECT embedding <#> $1::vector FROM fen_embeddings LIMIT 1"
           in
 
           let query_vector = make_embedding 768 1.0 in
           let* result =
-            Chessbuddy.Database.Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+            Chessbuddy.Database.Pool.use pool
+              (fun (module Db : Caqti_lwt.CONNECTION) ->
                 Db.find query_ip query_vector)
           in
 
           let neg_inner_prod = check_ok "Inner product query failed" result in
           (* Inner product of [1, 1, ...] (768 dims) with itself is 768
              pgvector returns negative, so -768 *)
-          Alcotest.(check (float 1.0)) "Negative inner product is -768"
-            (-768.0) neg_inner_prod;
+          Alcotest.(check (float 1.0))
+            "Negative inner product is -768" (-768.0) neg_inner_prod;
 
           Lwt.return_unit))
 
 (* Collect all vector tests *)
-let tests = [
-  test_record_embedding ();
-  test_embedding_dimension_constraint ();
-  test_cosine_similarity ();
-  test_l2_distance ();
-  test_inner_product ();
-]
+let tests =
+  [
+    test_record_embedding ();
+    test_embedding_dimension_constraint ();
+    test_cosine_similarity ();
+    test_l2_distance ();
+    test_inner_product ();
+  ]

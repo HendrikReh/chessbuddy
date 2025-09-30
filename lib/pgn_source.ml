@@ -1,7 +1,6 @@
 module String_map = Map.Make (String)
 
-let sanitize value =
-  value |> String.trim |> String.lowercase_ascii
+let sanitize value = value |> String.trim |> String.lowercase_ascii
 
 let string_has predicate s =
   let rec loop i =
@@ -34,13 +33,13 @@ let parse_headers lines =
 
 let parse_date value =
   match String.split_on_char '.' value with
-  | [ yyyy; mm; dd ] ->
-      (try
-         let year = int_of_string yyyy in
-         let month = int_of_string mm in
-         let day = int_of_string dd in
-         Ptime.of_date (year, month, day)
-       with _ -> None)
+  | [ yyyy; mm; dd ] -> (
+      try
+        let year = int_of_string yyyy in
+        let month = int_of_string mm in
+        let day = int_of_string dd in
+        Ptime.of_date (year, month, day)
+      with _ -> None)
   | _ -> None
 
 let header_value headers key =
@@ -75,14 +74,15 @@ let build_header headers =
 let sanitize_utf8 str =
   (* Keep only printable ASCII characters to avoid database encoding errors *)
   let buf = Buffer.create (String.length str) in
-  String.iter (fun c ->
-    let code = Char.code c in
-    if code >= 32 && code < 127 then
-      Buffer.add_char buf c
-    else if code = 10 || code = 13 || code = 9 then  (* Keep newlines and tabs *)
-      Buffer.add_char buf c
-    (* Skip non-ASCII bytes entirely to avoid invalid UTF-8 sequences *)
-  ) str;
+  String.iter
+    (fun c ->
+      let code = Char.code c in
+      if code >= 32 && code < 127 then Buffer.add_char buf c
+      else if code = 10 || code = 13 || code = 9 then
+        (* Keep newlines and tabs *)
+        Buffer.add_char buf c
+      (* Skip non-ASCII bytes entirely to avoid invalid UTF-8 sequences *))
+    str;
   Buffer.contents buf
 
 let parse_moves lines =
@@ -97,16 +97,19 @@ let parse_moves lines =
   let last_token_was_move = ref false in
 
   let update_last f =
-    match !moves with
-    | [] -> ()
-    | m :: rest -> moves := f m :: rest
+    match !moves with [] -> () | m :: rest -> moves := f m :: rest
   in
 
   let add_comment comment =
     let comment = String.trim comment in
     if comment = "" then ()
     else if !last_token_was_move && !moves <> [] then
-      update_last (fun m -> { m with Types.Move_feature.comments_after = m.Types.Move_feature.comments_after @ [ comment ] })
+      update_last (fun m ->
+          {
+            m with
+            Types.Move_feature.comments_after =
+              m.Types.Move_feature.comments_after @ [ comment ];
+          })
     else pending_comments := comment :: !pending_comments
   in
 
@@ -114,13 +117,22 @@ let parse_moves lines =
     let variation = String.trim variation in
     if variation = "" then ()
     else if !last_token_was_move && !moves <> [] then
-      update_last (fun m -> { m with Types.Move_feature.variations = m.Types.Move_feature.variations @ [ variation ] })
+      update_last (fun m ->
+          {
+            m with
+            Types.Move_feature.variations =
+              m.Types.Move_feature.variations @ [ variation ];
+          })
     else pending_variations := variation :: !pending_variations
   in
 
   let add_nag nag =
     if !last_token_was_move && !moves <> [] then
-      update_last (fun m -> { m with Types.Move_feature.nags = m.Types.Move_feature.nags @ [ nag ] })
+      update_last (fun m ->
+          {
+            m with
+            Types.Move_feature.nags = m.Types.Move_feature.nags @ [ nag ];
+          })
     else pending_nags := nag :: !pending_nags
   in
 
@@ -136,23 +148,31 @@ let parse_moves lines =
     if i >= len then i
     else
       let j = ref i in
-      while !j < len && Char.code text.[!j] >= Char.code '0' && Char.code text.[!j] <= Char.code '9' do
+      while
+        !j < len
+        && Char.code text.[!j] >= Char.code '0'
+        && Char.code text.[!j] <= Char.code '9'
+      do
         incr j
       done;
-      if !j < len && text.[!j] = '.' then begin
-        while !j < len && text.[!j] = '.' do incr j done;
-        skip_whitespace !j
-      end else i
+      if !j < len && text.[!j] = '.' then (
+        while !j < len && text.[!j] = '.' do
+          incr j
+        done;
+        skip_whitespace !j)
+      else i
   in
 
   let parse_comment i =
     let buf = Buffer.create 64 in
     let rec loop idx =
-      if idx >= len then Buffer.contents buf, idx
+      if idx >= len then (Buffer.contents buf, idx)
       else
         let c = text.[idx] in
-        if c = '}' then Buffer.contents buf, idx + 1
-        else (Buffer.add_char buf c; loop (idx + 1))
+        if c = '}' then (Buffer.contents buf, idx + 1)
+        else (
+          Buffer.add_char buf c;
+          loop (idx + 1))
     in
     loop i
   in
@@ -160,15 +180,21 @@ let parse_moves lines =
   let parse_variation i =
     let buf = Buffer.create 128 in
     let rec loop depth idx =
-      if idx >= len then Buffer.contents buf, idx
+      if idx >= len then (Buffer.contents buf, idx)
       else
         let c = text.[idx] in
         match c with
-        | '(' -> Buffer.add_char buf c; loop (depth + 1) (idx + 1)
+        | '(' ->
+            Buffer.add_char buf c;
+            loop (depth + 1) (idx + 1)
         | ')' ->
-            if depth = 1 then Buffer.contents buf, idx + 1
-            else (Buffer.add_char buf c; loop (depth - 1) (idx + 1))
-        | _ -> Buffer.add_char buf c; loop depth (idx + 1)
+            if depth = 1 then (Buffer.contents buf, idx + 1)
+            else (
+              Buffer.add_char buf c;
+              loop (depth - 1) (idx + 1))
+        | _ ->
+            Buffer.add_char buf c;
+            loop depth (idx + 1)
     in
     loop 1 i
   in
@@ -176,39 +202,50 @@ let parse_moves lines =
   let parse_token i =
     let buf = Buffer.create 32 in
     let rec loop idx =
-      if idx >= len then Buffer.contents buf, idx
+      if idx >= len then (Buffer.contents buf, idx)
       else
         match text.[idx] with
-        | ' ' | '\t' | '\n' | '\r' -> Buffer.contents buf, idx
-        | '{' | '}' | '(' | ')' -> Buffer.contents buf, idx
-        | _ -> Buffer.add_char buf text.[idx]; loop (idx + 1)
+        | ' ' | '\t' | '\n' | '\r' -> (Buffer.contents buf, idx)
+        | '{' | '}' | '(' | ')' -> (Buffer.contents buf, idx)
+        | _ ->
+            Buffer.add_char buf text.[idx];
+            loop (idx + 1)
     in
     loop i
   in
 
   let parse_nag i =
     let j = ref (i + 1) in
-    while !j < len && Char.code text.[!j] >= Char.code '0' && Char.code text.[!j] <= Char.code '9' do
+    while
+      !j < len
+      && Char.code text.[!j] >= Char.code '0'
+      && Char.code text.[!j] <= Char.code '9'
+    do
       incr j
     done;
-    if !j = i + 1 then None, i + 1
+    if !j = i + 1 then (None, i + 1)
     else
       let value = String.sub text (i + 1) (!j - (i + 1)) in
-      int_of_string_opt value, !j
+      (int_of_string_opt value, !j)
   in
 
   let add_move san =
     let san = String.trim san in
     if san = "" then ()
-    else begin
+    else
       let fen_before =
         if !ply = 1 then Fen_generator.starting_position_fen
-        else Fen_generator.placeholder_fen ~ply_number:(!ply - 1) ~side_to_move:!side
+        else
+          Fen_generator.placeholder_fen ~ply_number:(!ply - 1)
+            ~side_to_move:!side
       in
       let next_side = if !side = 'w' then 'b' else 'w' in
-      let fen_after = Fen_generator.placeholder_fen ~ply_number:!ply ~side_to_move:next_side in
+      let fen_after =
+        Fen_generator.placeholder_fen ~ply_number:!ply ~side_to_move:next_side
+      in
       let move =
-        { Types.Move_feature.ply_number = !ply;
+        {
+          Types.Move_feature.ply_number = !ply;
           san;
           uci = None;
           fen_before;
@@ -232,7 +269,6 @@ let parse_moves lines =
       side := next_side;
       incr ply;
       last_token_was_move := true
-    end
   in
 
   let rec loop i =
@@ -261,50 +297,70 @@ let parse_moves lines =
           if next_i = i then
             let token, next_i = parse_token i in
             if token = "" then loop (i + 1)
-            else if token = "..." then (last_token_was_move := false; loop next_i)
-            else (add_move token; loop next_i)
-          else (last_token_was_move := false; loop next_i)
+            else if token = "..." then (
+              last_token_was_move := false;
+              loop next_i)
+            else (
+              add_move token;
+              loop next_i)
+          else (
+            last_token_was_move := false;
+            loop next_i)
       | _ ->
           let token, next_i = parse_token i in
           let token = String.trim token in
           if token = "" then loop next_i
-          else if token = "..." then (last_token_was_move := false; loop next_i)
-          else (add_move token; loop next_i)
+          else if token = "..." then (
+            last_token_was_move := false;
+            loop next_i)
+          else (
+            add_move token;
+            loop next_i)
   in
 
   loop 0;
 
-  if !pending_comments <> [] && !moves <> [] then begin
+  if !pending_comments <> [] && !moves <> [] then (
     let trailing = List.rev !pending_comments in
     pending_comments := [];
     update_last (fun m ->
-        { m with Types.Move_feature.comments_after = m.Types.Move_feature.comments_after @ trailing })
-  end;
-  if !pending_variations <> [] && !moves <> [] then begin
+        {
+          m with
+          Types.Move_feature.comments_after =
+            m.Types.Move_feature.comments_after @ trailing;
+        }));
+  if !pending_variations <> [] && !moves <> [] then (
     let trailing = List.rev !pending_variations in
     pending_variations := [];
     update_last (fun m ->
-        { m with Types.Move_feature.variations = m.Types.Move_feature.variations @ trailing })
-  end;
-  if !pending_nags <> [] && !moves <> [] then begin
+        {
+          m with
+          Types.Move_feature.variations =
+            m.Types.Move_feature.variations @ trailing;
+        }));
+  if !pending_nags <> [] && !moves <> [] then (
     let trailing = List.rev !pending_nags in
     pending_nags := [];
-    update_last (fun m -> { m with Types.Move_feature.nags = m.Types.Move_feature.nags @ trailing })
-  end;
+    update_last (fun m ->
+        {
+          m with
+          Types.Move_feature.nags = m.Types.Move_feature.nags @ trailing;
+        }));
 
   List.rev !moves
 
 let game_from_block block =
-  let lines = block |> String.split_on_char '\n' |> List.filter (fun l -> String.trim l <> "") in
+  let lines =
+    block |> String.split_on_char '\n'
+    |> List.filter (fun l -> String.trim l <> "")
+  in
   let header_lines, move_lines =
     List.partition (fun line -> String.length line > 0 && line.[0] = '[') lines
   in
   let headers = parse_headers header_lines in
   let header = build_header headers in
   let source_pgn = sanitize_utf8 (String.concat "\n" lines) in
-  let moves =
-    parse_moves move_lines
-  in
+  let moves = parse_moves move_lines in
   { Types.Game.header; moves; source_pgn }
 
 let fold_games path ~init ~f =
@@ -316,8 +372,7 @@ let fold_games path ~init ~f =
         List.rev acc
     | line :: rest ->
         let trimmed = String.trim line in
-        if trimmed = "" then
-          accumulate acc current in_moves rest
+        if trimmed = "" then accumulate acc current in_moves rest
         else if String.length trimmed > 0 && trimmed.[0] = '[' then
           (* Header line *)
           if current <> "" && in_moves then
@@ -325,7 +380,9 @@ let fold_games path ~init ~f =
             accumulate (current :: acc) line false rest
           else
             (* Continue current game headers *)
-            let current = if current = "" then line else current ^ "\n" ^ line in
+            let current =
+              if current = "" then line else current ^ "\n" ^ line
+            in
             accumulate acc current false rest
         else
           (* Move line *)
@@ -345,11 +402,10 @@ let fold_games path ~init ~f =
     has_substring block "[White " && has_substring block "[Black "
   in
   let blocks =
-    lines
-    |> accumulate [] "" false
+    lines |> accumulate [] "" false
     |> List.filter (fun block ->
-        let trimmed = String.trim block in
-        trimmed <> "" && has_required_headers trimmed)
+           let trimmed = String.trim block in
+           trimmed <> "" && has_required_headers trimmed)
   in
   Lwt_list.fold_left_s
     (fun acc block ->

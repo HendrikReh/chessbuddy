@@ -41,7 +41,7 @@ jobs:
     
     - name: Check formatting
       run: |
-        opam install ocamlformat.0.26.2 --yes
+        opam install ocamlformat.0.27.0 --yes
         opam exec -- dune fmt --display=quiet
         git diff --exit-code
       if: matrix.os == 'ubuntu-latest' && matrix.ocaml-compiler == '5.2.x'

@@ -1,8 +1,7 @@
 (** FEN (Forsyth-Edwards Notation) generator for chess positions
 
     Note: This is a simplified implementation that generates placeholder FENs.
-    Full position tracking requires integration with a chess library.
-*)
+    Full position tracking requires integration with a chess library. *)
 
 let starting_position_fen =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"

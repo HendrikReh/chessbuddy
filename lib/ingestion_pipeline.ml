@@ -6,16 +6,15 @@ module type EMBEDDER = sig
 end
 
 module type PGN_SOURCE = sig
-  val fold_games
-    :  string
-    -> init:'a
-    -> f:('a -> Types.Game.t -> 'a Lwt.t)
-    -> 'a Lwt.t
+  val fold_games :
+    string -> init:'a -> f:('a -> Types.Game.t -> 'a Lwt.t) -> 'a Lwt.t
 end
 
 let compute_checksum path =
   let ic = open_in_bin path in
-  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr ic)
+    (fun () ->
       let chunk = Bytes.create 4096 in
       let rec loop ctx =
         match input ic chunk 0 (Bytes.length chunk) with
@@ -37,25 +36,15 @@ let record_player pool ~name ~fide_id =
 
 let record_game pool ~batch_id ~white_id ~black_id ~(game : Types.Game.t) =
   let%lwt res =
-    Db.record_game
-      pool
-      ~white_id
-      ~black_id
-      ~header:game.header
-      ~source_pgn:game.source_pgn
-      ~batch_id
+    Db.record_game pool ~white_id ~black_id ~header:game.header
+      ~source_pgn:game.source_pgn ~batch_id
   in
   or_fail res
 
-let ensure_fen pool ~fen_text ~side_to_move ~castling ~en_passant ~material_signature
-  =
+let ensure_fen pool ~fen_text ~side_to_move ~castling ~en_passant
+    ~material_signature =
   let%lwt res =
-    Db.upsert_fen
-      pool
-      ~fen_text
-      ~side_to_move
-      ~castling
-      ~en_passant
+    Db.upsert_fen pool ~fen_text ~side_to_move ~castling ~en_passant
       ~material_signature
   in
   or_fail res
@@ -64,8 +53,7 @@ let material_signature board =
   (* Placeholder for a richer material signature derived from ocamlchess. *)
   Digestif.SHA1.(to_hex (digest_string board))
 
-let motifs_for_move (_move : Types.Move_feature.t) =
-  []
+let motifs_for_move (_move : Types.Move_feature.t) = []
 
 let fen_components fen =
   match String.split_on_char ' ' fen with
@@ -75,21 +63,13 @@ let fen_components fen =
       (side_to_move, castling, en_passant)
   | _ -> ('w', "-", None)
 
-let process_move
-  pool
-  ~game_id
-  ~(embedder : (module EMBEDDER))
-  ~(move : Types.Move_feature.t)
-  =
+let process_move pool ~game_id ~(embedder : (module EMBEDDER))
+    ~(move : Types.Move_feature.t) =
   let module Embedder = (val embedder : EMBEDDER) in
   let side_to_move, castling, en_passant = fen_components move.fen_after in
   let%lwt fen_id =
-    ensure_fen
-      pool
-      ~fen_text:move.Types.Move_feature.fen_after
-      ~side_to_move
-      ~castling
-      ~en_passant
+    ensure_fen pool ~fen_text:move.Types.Move_feature.fen_after ~side_to_move
+      ~castling ~en_passant
       ~material_signature:(material_signature move.fen_after)
   in
   let%lwt res = Db.record_position pool ~game_id ~move ~fen_id ~side_to_move in
@@ -100,37 +80,30 @@ let process_move
   in
   or_fail res
 
-let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id ~(game : Types.Game.t)
-  =
+let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id
+    ~(game : Types.Game.t) =
   let%lwt white_id =
-    record_player
-      pool
-      ~name:game.header.white_player
+    record_player pool ~name:game.header.white_player
       ~fide_id:game.header.white_fide_id
   in
   let%lwt black_id =
-    record_player
-      pool
-      ~name:game.header.black_player
+    record_player pool ~name:game.header.black_player
       ~fide_id:game.header.black_fide_id
   in
   let%lwt game_id = record_game pool ~batch_id ~white_id ~black_id ~game in
-  Lwt_list.iter_s (fun move -> process_move pool ~game_id ~embedder ~move) game.moves
+  Lwt_list.iter_s
+    (fun move -> process_move pool ~game_id ~embedder ~move)
+    game.moves
 
-let ingest_file
-  (module Source : PGN_SOURCE)
-  pool
-  ~(embedder : (module EMBEDDER))
-  ~pgn_path
-  ~batch_label
-  =
+let ingest_file (module Source : PGN_SOURCE) pool
+    ~(embedder : (module EMBEDDER)) ~pgn_path ~batch_label =
   let checksum = compute_checksum pgn_path in
   let%lwt res =
     Db.create_batch pool ~source_path:pgn_path ~label:batch_label ~checksum
   in
   let%lwt batch_id = or_fail res in
   Source.fold_games pgn_path ~init:() ~f:(fun () game ->
-    process_game pool ~embedder ~batch_id ~game)
+      process_game pool ~embedder ~batch_id ~game)
 
 let with_pool uri f =
   match Db.Pool.create uri with

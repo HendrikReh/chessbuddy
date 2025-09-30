@@ -1,6 +1,3 @@
-open Lwt.Infix
-open Ingestion_pipeline
-
 module String_map = Map.Make (String)
 
 let sanitize value =

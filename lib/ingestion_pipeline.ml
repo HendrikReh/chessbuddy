@@ -1,5 +1,3 @@
-open Lwt.Infix
-
 module Db = Database
 
 module type EMBEDDER = sig
@@ -16,7 +14,7 @@ module type PGN_SOURCE = sig
 end
 
 let compute_checksum path =
-  let digest = Digestif.SHA256.file path in
+  let digest = Digestif.SHA256.digest_string path in
   Digestif.SHA256.to_hex digest
 
 let or_fail = function
@@ -66,7 +64,7 @@ let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id ~(game : Types.G
   let%lwt white_id = record_player pool ~name:game.header.white_player ~fide_id:None in
   let%lwt black_id = record_player pool ~name:game.header.black_player ~fide_id:None in
   let%lwt game_id = record_game pool ~batch_id ~white_id ~black_id ~game in
-  Lwt_list.iter_s (process_move pool ~game_id ~embedder) game.moves
+  Lwt_list.iter_s (fun move -> process_move pool ~game_id ~embedder ~move) game.moves
 
 let ingest_file (module Source : PGN_SOURCE) pool ~(embedder : (module EMBEDDER)) ~pgn_path ~batch_label =
   let checksum = compute_checksum pgn_path in
@@ -76,6 +74,6 @@ let ingest_file (module Source : PGN_SOURCE) pool ~(embedder : (module EMBEDDER)
       process_game pool ~embedder ~batch_id ~game)
 
 let with_pool uri f =
-  Db.Pool.create uri >>= function
+  match Db.Pool.create uri with
   | Error err -> Lwt.fail_with (Caqti_error.show err)
   | Ok pool -> f pool

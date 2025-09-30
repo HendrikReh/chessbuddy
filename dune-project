@@ -1,7 +1,6 @@
 (lang dune 3.10)
 (version 0.0.1)
 (name chessbuddy)
-(using fmt 1.3)
 (generate_opam_files true)
 
 (package
@@ -13,9 +12,7 @@
   lwt
   lwt_ppx
   logs
-  logs.fmt
-  pgn_parser
-  ocamlchess
+  fmt
   caqti
   caqti-lwt
   caqti-driver-postgresql
@@ -26,4 +23,7 @@
   ppx_deriving
   ppx_yojson_conv
   uri
+  uuidm
+  (alcotest :with-test)
+  (alcotest-lwt :with-test)
   ))

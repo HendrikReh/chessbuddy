@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ingestion_batches (
     batch_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     source_path TEXT NOT NULL,
     label TEXT NOT NULL,
-    checksum TEXT NOT NULL,
+    checksum TEXT NOT NULL UNIQUE,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

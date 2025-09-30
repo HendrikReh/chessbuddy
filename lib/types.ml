@@ -13,7 +13,7 @@ module Player = struct
     fide_id : string option;
     full_name : string;
     rating_history : (Ptime.t * Rating.t) list;
-  } [@@deriving show, yojson]
+  } [@@deriving show]
 end
 
 module Game_header = struct
@@ -30,7 +30,7 @@ module Game_header = struct
     black_elo : int option;
     result : string;
     termination : string option;
-  } [@@deriving show, yojson]
+  } [@@deriving show]
 end
 
 module Move_feature = struct
@@ -54,7 +54,7 @@ module Game = struct
     header : Game_header.t;
     moves : Move_feature.t list;
     source_pgn : string;
-  } [@@deriving show, yojson]
+  } [@@deriving show]
 end
 
 module Batch = struct
@@ -62,5 +62,5 @@ module Batch = struct
     label : string;
     checksum : string;
     ingested_at : Ptime.t;
-  } [@@deriving show, yojson]
+  } [@@deriving show]
 end

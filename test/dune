@@ -1,0 +1,13 @@
+(test
+ (name test_suite)
+ (libraries
+  chessbuddy.core
+  alcotest
+  alcotest-lwt
+  lwt
+  lwt.unix
+  caqti
+  caqti-lwt
+  caqti-driver-postgresql
+  ptime)
+ (preprocess (pps lwt_ppx)))

@@ -1,5 +1,3 @@
-open Lwt.Infix
-
 module type PROVIDER = Ingestion_pipeline.EMBEDDER
 
 module Constant : PROVIDER = struct

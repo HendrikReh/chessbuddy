@@ -26,7 +26,7 @@ let batch_term =
 
 let cmd =
   let doc = "Ingest PGN games into chessbuddy" in
-  let exits = Term.default_exits in
-  Term.(const run $ db_uri_term $ pgn_term $ batch_term), Term.info "chessbuddy-ingest" ~doc ~exits
+  let info = Cmd.info "chessbuddy-ingest" ~doc ~exits:Cmd.Exit.defaults in
+  Cmd.v info Term.(const run $ db_uri_term $ pgn_term $ batch_term)
 
-let () = Term.exit @@ Term.eval cmd
+let () = exit (Cmd.eval cmd)

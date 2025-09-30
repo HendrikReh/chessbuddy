@@ -7,11 +7,11 @@
   lwt.unix
   logs
   logs.fmt
-  pgn_parser
-  ocamlchess
   caqti
   caqti-lwt
+  caqti-lwt.unix
   caqti-driver-postgresql
   yojson
   ptime
-  digestif))
+  digestif
+  uuidm))

@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    env:
+      UNDICI_NO_GLOBAL: 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        ocaml-compiler: [5.1.x, 5.2.x]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Set up OCaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: ${{ matrix.ocaml-compiler }}
+        dune-cache: true
+
+    - name: Install dependencies
+      run: opam install . --deps-only --with-test
+    
+    - name: Build
+      run: opam exec -- dune build
+    
+    - name: Run tests
+      run: opam exec -- dune runtest
+    
+    - name: Check formatting
+      run: |
+        opam install ocamlformat.0.26.2 --yes
+        opam exec -- dune fmt --display=quiet
+        git diff --exit-code
+      if: matrix.os == 'ubuntu-latest' && matrix.ocaml-compiler == '5.2.x'
+
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      UNDICI_NO_GLOBAL: 'true'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Set up OCaml
+      if: ${{ !env.ACT }}
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: 5.2.x
+      env:
+        UNDICI_NO_GLOBAL: 'true'
+
+    - name: Set up OCaml (act local testing)
+      if: ${{ env.ACT }}
+      run: |
+        echo "⚠️  Skipping setup-ocaml@v3 (requires Node 20+, act uses Node 18)"
+        echo ""
+        echo "For local testing with act, use a container with OCaml pre-installed:"
+        echo "  docker run -it --rm ocaml/opam:ubuntu-22.04-ocaml-5.2"
+        echo ""
+        echo "Or test directly on GitHub Actions by pushing to a branch."
+        echo ""
+        echo "This step will exit successfully to allow workflow validation."
+        exit 0
+
+    - name: Install dependencies
+      if: ${{ !env.ACT }}
+      run: opam install . --deps-only --with-test
+
+    - name: Check for build warnings
+      if: ${{ !env.ACT }}
+      shell: bash
+      env:
+        OCAMLPARAM: _,warn-error=+a
+      run: |
+        set -o pipefail
+        opam exec -- dune build --display=short

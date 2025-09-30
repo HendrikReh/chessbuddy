@@ -9,8 +9,7 @@ let run db_uri pgn_path batch_label =
            (module Pgn_source.Default)
            pool
            ~embedder:(module Embedder.Constant)
-           ~pgn_path
-           ~batch_label))
+           ~pgn_path ~batch_label))
 
 let db_uri_term =
   let doc = "PostgreSQL connection URI" in

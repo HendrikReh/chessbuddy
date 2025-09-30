@@ -10,4 +10,5 @@
   caqti-lwt
   caqti-driver-postgresql
   ptime)
- (preprocess (pps lwt_ppx)))
+ (preprocess
+  (pps lwt_ppx)))

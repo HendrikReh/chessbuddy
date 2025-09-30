@@ -1,7 +1,8 @@
 (library
  (name chessbuddy)
  (public_name chessbuddy.core)
- (preprocess (pps lwt_ppx ppx_deriving.show ppx_yojson_conv))
+ (preprocess
+  (pps lwt_ppx ppx_deriving.show ppx_yojson_conv))
  (libraries
   lwt
   lwt.unix

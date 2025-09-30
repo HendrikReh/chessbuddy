@@ -2,4 +2,5 @@
  (name ingest)
  (public_name chessbuddy-ingest)
  (libraries chessbuddy.core cmdliner uri lwt lwt.unix)
- (preprocess (pps lwt_ppx ppx_deriving.show ppx_yojson_conv)))
+ (preprocess
+  (pps lwt_ppx ppx_deriving.show ppx_yojson_conv)))

@@ -28,6 +28,8 @@ module Game_header = struct
     black_player : string;
     white_elo : int option;
     black_elo : int option;
+    white_fide_id : string option;
+    black_fide_id : string option;
     result : string;
     termination : string option;
   } [@@deriving show]

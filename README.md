@@ -1,6 +1,7 @@
 # ChessBuddy
 
 [![OCaml](https://img.shields.io/badge/OCaml-%3E%3D%205.1-orange.svg)](https://ocaml.org)
+[![Version](https://img.shields.io/badge/Version-0.0.2-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/Status-Proof%20of%20Concept-yellow.svg)](https://github.com/HendrikReh/chessbuddy)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/HendrikReh/chessbuddy/ci.yml?branch=main)](https://github.com/HendrikReh/chessbuddy/actions)
 [![License](https://img.shields.io/github/license/HendrikReh/chessbuddy)](LICENSE)
@@ -8,7 +9,7 @@
 [![Collaboration](https://img.shields.io/badge/Collaboration-Guidelines-blue.svg)](docs/GUIDELINES.md)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/HendrikReh/chessbuddy/graphs/commit-activity)
 
-Retrieval system for chess training that combines a relational database (PGN games) with a vector database (FEN embeddings).
+Retrieval system for chess training that combines a relational database (PGN games) with a vector database (FEN embeddings). Features position-level ingestion with FEN tracking, automatic deduplication, and semantic search capabilities.
 
 <p align="center">
   <a href="#components">Components</a> •
@@ -25,8 +26,19 @@ Retrieval system for chess training that combines a relational database (PGN gam
 ## Components
 
 - **PostgreSQL + pgvector**: Stores players, games, moves, and embeddings. Launch via `docker-compose up -d`.
-- **OCaml ingestion service**: Parses PGN files, reconstructs FEN positions, computes engineered features, and stores both relational rows and vector embeddings.
+- **OCaml ingestion service**: Parses PGN files, generates FEN positions with placeholder tracking, computes engineered features, and stores both relational rows and vector embeddings.
+- **FEN Generator**: Produces FEN notation for each position with correct move numbers and side-to-move tracking (placeholder board state for now).
 - **Schema definition**: `sql/schema.sql` can be applied to the Postgres instance to bootstrap tables, indexes, and helper views/materialized views for thematic queries.
+
+## Performance
+
+Benchmarked on TWIC 1611 (4.2MB, 4,875 games):
+
+- **Ingestion**: 5:27 minutes (~15 games/sec, ~1,310 positions/sec)
+- **Positions tracked**: 428,853 move-level entries
+- **FEN deduplication**: 99.93% (301 unique positions)
+- **Players**: 2,047 with 100% FIDE ID coverage
+- **Embeddings**: 301 (one per unique FEN)
 
 ## Getting started
 
@@ -54,7 +66,9 @@ Retrieval system for chess training that combines a relational database (PGN gam
      --batch-label "mega-2024"
    ```
 
-The executable streams PGN games, deduplicates FENs, produces embeddings (via a pluggable provider), and persists metadata ready for hybrid SQL + vector search queries.
+The executable streams PGN games, generates placeholder FENs for each position, deduplicates positions, produces embeddings (via a pluggable provider), and persists metadata ready for hybrid SQL + vector search queries.
+
+**Note**: Current version (0.0.2) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
 
 ## Testing
 
@@ -91,9 +105,10 @@ See [docs/DEVELOPER.md](docs/DEVELOPER.md) for information on integration tests 
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-0.1.0-red.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.2-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/Stage-Experimental-orange.svg" alt="Experimental">
   <img src="https://img.shields.io/badge/Made%20with-OCaml-orange.svg" alt="Made with OCaml">
+  <img src="https://img.shields.io/badge/Tests-11%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/github/last-commit/HendrikReh/chessbuddy" alt="Last Commit">
   <img src="https://img.shields.io/github/issues/HendrikReh/chessbuddy" alt="Issues">
   <img src="https://img.shields.io/github/stars/HendrikReh/chessbuddy?style=social" alt="Stars">

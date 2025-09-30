@@ -183,6 +183,8 @@ let test_record_game () =
             black_player = "Black Player";
             white_elo = Some 2500;
             black_elo = Some 2480;
+            white_fide_id = Some "12345678";
+            black_fide_id = Some "87654321";
             result = "1-0";
             termination = Some "Normal";
           } in

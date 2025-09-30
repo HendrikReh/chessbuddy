@@ -61,8 +61,8 @@ let process_move pool ~game_id ~(embedder : (module EMBEDDER)) ~(move : Types.Mo
   or_fail res
 
 let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id ~(game : Types.Game.t) =
-  let%lwt white_id = record_player pool ~name:game.header.white_player ~fide_id:None in
-  let%lwt black_id = record_player pool ~name:game.header.black_player ~fide_id:None in
+  let%lwt white_id = record_player pool ~name:game.header.white_player ~fide_id:game.header.white_fide_id in
+  let%lwt black_id = record_player pool ~name:game.header.black_player ~fide_id:game.header.black_fide_id in
   let%lwt game_id = record_game pool ~batch_id ~white_id ~black_id ~game in
   Lwt_list.iter_s (fun move -> process_move pool ~game_id ~embedder ~move) game.moves
 

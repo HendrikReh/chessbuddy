@@ -62,9 +62,24 @@ let build_header headers =
     black_player = required headers "Black";
     white_elo = Option.bind (header_value headers "WhiteElo") int_of_string_opt;
     black_elo = Option.bind (header_value headers "BlackElo") int_of_string_opt;
+    white_fide_id = header_value headers "WhiteFideId";
+    black_fide_id = header_value headers "BlackFideId";
     result = Option.value (header_value headers "Result") ~default:"*";
     termination = header_value headers "Termination";
   }
+
+let sanitize_utf8 str =
+  (* Keep only printable ASCII characters to avoid database encoding errors *)
+  let buf = Buffer.create (String.length str) in
+  String.iter (fun c ->
+    let code = Char.code c in
+    if code >= 32 && code < 127 then
+      Buffer.add_char buf c
+    else if code = 10 || code = 13 || code = 9 then  (* Keep newlines and tabs *)
+      Buffer.add_char buf c
+    (* Skip non-ASCII bytes entirely to avoid invalid UTF-8 sequences *)
+  ) str;
+  Buffer.contents buf
 
 let game_from_block block =
   let lines = block |> String.split_on_char '\n' |> List.filter (fun l -> String.trim l <> "") in
@@ -73,7 +88,7 @@ let game_from_block block =
   in
   let headers = parse_headers header_lines in
   let header = build_header headers in
-  let source_pgn = String.concat "\n" lines in
+  let source_pgn = sanitize_utf8 (String.concat "\n" lines) in
   let moves =
     let is_result token =
       match token with
@@ -93,13 +108,19 @@ let game_from_block block =
               else if String.contains token '.' || is_result token then
                 build acc ply side rest
               else
+                let fen_before =
+                  if ply = 1 then Fen_generator.starting_position_fen
+                  else Fen_generator.placeholder_fen ~ply_number:(ply - 1) ~side_to_move:side
+                in
+                let next_side = if side = 'w' then 'b' else 'w' in
+                let fen_after = Fen_generator.placeholder_fen ~ply_number:ply ~side_to_move:next_side in
                 let move =
                   {
                     Types.Move_feature.ply_number = ply;
                     san = token;
                     uci = None;
-                    fen_before = "";
-                    fen_after = "";
+                    fen_before;
+                    fen_after;
                     side_to_move = side;
                     eval_cp = None;
                     is_capture = String.contains token 'x';
@@ -108,7 +129,6 @@ let game_from_block block =
                     motifs = [];
                   }
                 in
-                let next_side = if side = 'w' then 'b' else 'w' in
                 build (move :: acc) (ply + 1) next_side rest
         in
         build [] 1 'w' tokens
@@ -117,19 +137,47 @@ let game_from_block block =
 
 let fold_games path ~init ~f =
   let%lwt contents = Lwt_io.(with_file ~mode:Input path read) in
-  let blocks = String.split_on_char '\n' contents in
-  let rec accumulate acc current = function
-    | [] -> List.rev (current :: acc)
+  let lines = String.split_on_char '\n' contents in
+  let rec accumulate acc current in_moves = function
+    | [] ->
+        let acc = if current = "" then acc else current :: acc in
+        List.rev acc
     | line :: rest ->
-        if String.trim line = "" then accumulate (current :: acc) "" rest
+        let trimmed = String.trim line in
+        if trimmed = "" then
+          accumulate acc current in_moves rest
+        else if String.length trimmed > 0 && trimmed.[0] = '[' then
+          (* Header line *)
+          if current <> "" && in_moves then
+            (* New game starting - save current and start new *)
+            accumulate (current :: acc) line false rest
+          else
+            (* Continue current game headers *)
+            let current = if current = "" then line else current ^ "\n" ^ line in
+            accumulate acc current false rest
         else
+          (* Move line *)
           let current = if current = "" then line else current ^ "\n" ^ line in
-          accumulate acc current rest
+          accumulate acc current true rest
+  in
+  let has_required_headers block =
+    (* Check if block has at least White and Black headers *)
+    let has_substring str sub =
+      let rec search pos =
+        if pos > String.length str - String.length sub then false
+        else if String.sub str pos (String.length sub) = sub then true
+        else search (pos + 1)
+      in
+      try search 0 with Invalid_argument _ -> false
+    in
+    has_substring block "[White " && has_substring block "[Black "
   in
   let blocks =
-    blocks
-    |> accumulate [] ""
-    |> List.filter (fun block -> String.trim block <> "")
+    lines
+    |> accumulate [] "" false
+    |> List.filter (fun block ->
+        let trimmed = String.trim block in
+        trimmed <> "" && has_required_headers trimmed)
   in
   Lwt_list.fold_left_s
     (fun acc block ->

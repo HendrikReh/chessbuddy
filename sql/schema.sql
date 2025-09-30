@@ -1,6 +1,7 @@
 -- PostgreSQL schema for chessbuddy persistence layer
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS players (
     player_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -42,9 +43,10 @@ CREATE TABLE IF NOT EXISTS games (
     result TEXT NOT NULL,
     termination TEXT,
     source_pgn TEXT NOT NULL,
+    pgn_hash TEXT GENERATED ALWAYS AS (encode(digest(source_pgn, 'sha256'), 'hex')) STORED,
     ingestion_batch UUID REFERENCES ingestion_batches(batch_id),
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (white_id, black_id, game_date, round, source_pgn)
+    UNIQUE (white_id, black_id, game_date, round, pgn_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_games_eco_date ON games (eco_code, game_date);

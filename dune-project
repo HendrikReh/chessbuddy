@@ -5,6 +5,11 @@
 
 (package
  (name chessbuddy)
+ (maintainers "Hendrik Reh <maintainers@chessbuddy.io>")
+ (authors "Hendrik Reh")
+ (homepage "https://github.com/HendrikReh/chessbuddy")
+ (bug_reports "https://github.com/HendrikReh/chessbuddy/issues")
+ (license "MIT")
  (synopsis "Hybrid SQL + vector chess retrieval pipeline")
  (depends
   (ocaml (>= 5.1))

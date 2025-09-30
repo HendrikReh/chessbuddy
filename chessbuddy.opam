@@ -2,6 +2,11 @@
 opam-version: "2.0"
 version: "0.0.3"
 synopsis: "Hybrid SQL + vector chess retrieval pipeline"
+maintainer: ["Hendrik Reh <maintainers@chessbuddy.io>"]
+authors: ["Hendrik Reh"]
+license: "MIT"
+homepage: "https://github.com/HendrikReh/chessbuddy"
+bug-reports: "https://github.com/HendrikReh/chessbuddy/issues"
 depends: [
   "ocaml" {>= "5.1"}
   "dune" {>= "3.10"}

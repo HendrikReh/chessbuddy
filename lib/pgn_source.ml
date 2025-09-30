@@ -11,6 +11,10 @@ let string_has predicate s =
   in
   loop 0
 
+let starts_with str idx prefix =
+  let len = String.length prefix in
+  idx + len <= String.length str && String.sub str idx len = prefix
+
 let parse_header_line map line =
   let line = String.trim line in
   if line = "" || line.[0] <> '[' then map
@@ -81,6 +85,215 @@ let sanitize_utf8 str =
   ) str;
   Buffer.contents buf
 
+let parse_moves lines =
+  let text = String.concat "\n" lines in
+  let len = String.length text in
+  let moves = ref [] in
+  let pending_comments = ref [] in
+  let pending_variations = ref [] in
+  let pending_nags = ref [] in
+  let ply = ref 1 in
+  let side = ref 'w' in
+  let last_token_was_move = ref false in
+
+  let update_last f =
+    match !moves with
+    | [] -> ()
+    | m :: rest -> moves := f m :: rest
+  in
+
+  let add_comment comment =
+    let comment = String.trim comment in
+    if comment = "" then ()
+    else if !last_token_was_move && !moves <> [] then
+      update_last (fun m -> { m with Types.Move_feature.comments_after = m.Types.Move_feature.comments_after @ [ comment ] })
+    else pending_comments := comment :: !pending_comments
+  in
+
+  let add_variation variation =
+    let variation = String.trim variation in
+    if variation = "" then ()
+    else if !last_token_was_move && !moves <> [] then
+      update_last (fun m -> { m with Types.Move_feature.variations = m.Types.Move_feature.variations @ [ variation ] })
+    else pending_variations := variation :: !pending_variations
+  in
+
+  let add_nag nag =
+    if !last_token_was_move && !moves <> [] then
+      update_last (fun m -> { m with Types.Move_feature.nags = m.Types.Move_feature.nags @ [ nag ] })
+    else pending_nags := nag :: !pending_nags
+  in
+
+  let rec skip_whitespace i =
+    if i < len then
+      match text.[i] with
+      | ' ' | '\t' | '\n' | '\r' -> skip_whitespace (i + 1)
+      | _ -> i
+    else i
+  in
+
+  let skip_move_number i =
+    if i >= len then i
+    else
+      let j = ref i in
+      while !j < len && Char.code text.[!j] >= Char.code '0' && Char.code text.[!j] <= Char.code '9' do
+        incr j
+      done;
+      if !j < len && text.[!j] = '.' then begin
+        while !j < len && text.[!j] = '.' do incr j done;
+        skip_whitespace !j
+      end else i
+  in
+
+  let parse_comment i =
+    let buf = Buffer.create 64 in
+    let rec loop idx =
+      if idx >= len then Buffer.contents buf, idx
+      else
+        let c = text.[idx] in
+        if c = '}' then Buffer.contents buf, idx + 1
+        else (Buffer.add_char buf c; loop (idx + 1))
+    in
+    loop i
+  in
+
+  let parse_variation i =
+    let buf = Buffer.create 128 in
+    let rec loop depth idx =
+      if idx >= len then Buffer.contents buf, idx
+      else
+        let c = text.[idx] in
+        match c with
+        | '(' -> Buffer.add_char buf c; loop (depth + 1) (idx + 1)
+        | ')' ->
+            if depth = 1 then Buffer.contents buf, idx + 1
+            else (Buffer.add_char buf c; loop (depth - 1) (idx + 1))
+        | _ -> Buffer.add_char buf c; loop depth (idx + 1)
+    in
+    loop 1 i
+  in
+
+  let parse_token i =
+    let buf = Buffer.create 32 in
+    let rec loop idx =
+      if idx >= len then Buffer.contents buf, idx
+      else
+        match text.[idx] with
+        | ' ' | '\t' | '\n' | '\r' -> Buffer.contents buf, idx
+        | '{' | '}' | '(' | ')' -> Buffer.contents buf, idx
+        | _ -> Buffer.add_char buf text.[idx]; loop (idx + 1)
+    in
+    loop i
+  in
+
+  let parse_nag i =
+    let j = ref (i + 1) in
+    while !j < len && Char.code text.[!j] >= Char.code '0' && Char.code text.[!j] <= Char.code '9' do
+      incr j
+    done;
+    if !j = i + 1 then None, i + 1
+    else
+      let value = String.sub text (i + 1) (!j - (i + 1)) in
+      int_of_string_opt value, !j
+  in
+
+  let add_move san =
+    let san = String.trim san in
+    if san = "" then ()
+    else begin
+      let fen_before =
+        if !ply = 1 then Fen_generator.starting_position_fen
+        else Fen_generator.placeholder_fen ~ply_number:(!ply - 1) ~side_to_move:!side
+      in
+      let next_side = if !side = 'w' then 'b' else 'w' in
+      let fen_after = Fen_generator.placeholder_fen ~ply_number:!ply ~side_to_move:next_side in
+      let move =
+        { Types.Move_feature.ply_number = !ply;
+          san;
+          uci = None;
+          fen_before;
+          fen_after;
+          side_to_move = !side;
+          eval_cp = None;
+          is_capture = String.contains san 'x';
+          is_check = string_has (fun c -> c = '+' || c = '#') san;
+          is_mate = String.contains san '#';
+          motifs = [];
+          comments_before = List.rev !pending_comments;
+          comments_after = [];
+          variations = List.rev !pending_variations;
+          nags = List.rev !pending_nags;
+        }
+      in
+      moves := move :: !moves;
+      pending_comments := [];
+      pending_variations := [];
+      pending_nags := [];
+      side := next_side;
+      incr ply;
+      last_token_was_move := true
+    end
+  in
+
+  let rec loop i =
+    let i = skip_whitespace i in
+    if i >= len then ()
+    else if starts_with text i "1-0" then ()
+    else if starts_with text i "0-1" then ()
+    else if starts_with text i "1/2-1/2" then ()
+    else if text.[i] = '*' then ()
+    else
+      match text.[i] with
+      | '{' ->
+          let comment, next_i = parse_comment (i + 1) in
+          add_comment comment;
+          loop next_i
+      | '(' ->
+          let variation, next_i = parse_variation (i + 1) in
+          add_variation variation;
+          loop next_i
+      | '$' ->
+          let nag_opt, next_i = parse_nag i in
+          (match nag_opt with Some nag -> add_nag nag | None -> ());
+          loop next_i
+      | '0' .. '9' ->
+          let next_i = skip_move_number i in
+          if next_i = i then
+            let token, next_i = parse_token i in
+            if token = "" then loop (i + 1)
+            else if token = "..." then (last_token_was_move := false; loop next_i)
+            else (add_move token; loop next_i)
+          else (last_token_was_move := false; loop next_i)
+      | _ ->
+          let token, next_i = parse_token i in
+          let token = String.trim token in
+          if token = "" then loop next_i
+          else if token = "..." then (last_token_was_move := false; loop next_i)
+          else (add_move token; loop next_i)
+  in
+
+  loop 0;
+
+  if !pending_comments <> [] && !moves <> [] then begin
+    let trailing = List.rev !pending_comments in
+    pending_comments := [];
+    update_last (fun m ->
+        { m with Types.Move_feature.comments_after = m.Types.Move_feature.comments_after @ trailing })
+  end;
+  if !pending_variations <> [] && !moves <> [] then begin
+    let trailing = List.rev !pending_variations in
+    pending_variations := [];
+    update_last (fun m ->
+        { m with Types.Move_feature.variations = m.Types.Move_feature.variations @ trailing })
+  end;
+  if !pending_nags <> [] && !moves <> [] then begin
+    let trailing = List.rev !pending_nags in
+    pending_nags := [];
+    update_last (fun m -> { m with Types.Move_feature.nags = m.Types.Move_feature.nags @ trailing })
+  end;
+
+  List.rev !moves
+
 let game_from_block block =
   let lines = block |> String.split_on_char '\n' |> List.filter (fun l -> String.trim l <> "") in
   let header_lines, move_lines =
@@ -90,48 +303,7 @@ let game_from_block block =
   let header = build_header headers in
   let source_pgn = sanitize_utf8 (String.concat "\n" lines) in
   let moves =
-    let is_result token =
-      match token with
-      | "1-0" | "0-1" | "1/2-1/2" | "*" -> true
-      | _ -> false
-    in
-    match move_lines with
-    | [] -> []
-    | xs ->
-        let concatenated = String.concat " " xs in
-        let tokens = String.split_on_char ' ' concatenated in
-        let rec build acc ply side = function
-          | [] -> List.rev acc
-          | token :: rest ->
-              let token = String.trim token in
-              if token = "" then build acc ply side rest
-              else if String.contains token '.' || is_result token then
-                build acc ply side rest
-              else
-                let fen_before =
-                  if ply = 1 then Fen_generator.starting_position_fen
-                  else Fen_generator.placeholder_fen ~ply_number:(ply - 1) ~side_to_move:side
-                in
-                let next_side = if side = 'w' then 'b' else 'w' in
-                let fen_after = Fen_generator.placeholder_fen ~ply_number:ply ~side_to_move:next_side in
-                let move =
-                  {
-                    Types.Move_feature.ply_number = ply;
-                    san = token;
-                    uci = None;
-                    fen_before;
-                    fen_after;
-                    side_to_move = side;
-                    eval_cp = None;
-                    is_capture = String.contains token 'x';
-                    is_check = string_has (fun c -> c = '+' || c = '#') token;
-                    is_mate = String.contains token '#';
-                    motifs = [];
-                  }
-                in
-                build (move :: acc) (ply + 1) next_side rest
-        in
-        build [] 1 'w' tokens
+    parse_moves move_lines
   in
   { Types.Game.header; moves; source_pgn }
 

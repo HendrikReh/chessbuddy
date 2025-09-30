@@ -203,12 +203,12 @@ let upsert_fen pool ~(fen_text : string) ~(side_to_move : char) ~(castling : str
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
       Db.find insert_fen_query params)
 
-let record_position pool ~game_id ~(move : Types.Move_feature.t) ~fen_id =
+let record_position pool ~game_id ~(move : Types.Move_feature.t) ~fen_id ~side_to_move =
   let header =
     ( game_id
     , move.ply_number
     , fen_id
-    , String.make 1 move.side_to_move
+    , String.make 1 side_to_move
     , move.san )
   in
   let body =

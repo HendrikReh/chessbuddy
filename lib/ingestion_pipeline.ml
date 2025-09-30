@@ -14,8 +14,18 @@ module type PGN_SOURCE = sig
 end
 
 let compute_checksum path =
-  let digest = Digestif.SHA256.digest_string path in
-  Digestif.SHA256.to_hex digest
+  let ic = open_in_bin path in
+  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+      let chunk = Bytes.create 4096 in
+      let rec loop ctx =
+        match input ic chunk 0 (Bytes.length chunk) with
+        | 0 -> ctx
+        | len ->
+            let data = Bytes.sub_string chunk 0 len in
+            let ctx = Digestif.SHA256.feed_string ctx data in
+            loop ctx
+      in
+      Digestif.SHA256.(loop (init ()) |> get |> to_hex))
 
 let or_fail = function
   | Ok v -> Lwt.return v
@@ -44,17 +54,26 @@ let material_signature board =
 let motifs_for_move (_move : Types.Move_feature.t) =
   []
 
+let fen_components fen =
+  match String.split_on_char ' ' fen with
+  | _board :: active :: castling :: en_passant :: _halfmove :: _fullmove :: _ ->
+      let side_to_move = if String.length active > 0 then active.[0] else 'w' in
+      let en_passant = if en_passant = "-" then None else Some en_passant in
+      (side_to_move, castling, en_passant)
+  | _ -> ('w', "-", None)
+
 let process_move pool ~game_id ~(embedder : (module EMBEDDER)) ~(move : Types.Move_feature.t) =
   let module Embedder = (val embedder : EMBEDDER) in
+  let side_to_move, castling, en_passant = fen_components move.fen_after in
   let%lwt fen_id =
     ensure_fen pool
       ~fen_text:move.Types.Move_feature.fen_after
-      ~side_to_move:move.side_to_move
-      ~castling:"-"
-      ~en_passant:None
+      ~side_to_move
+      ~castling
+      ~en_passant
       ~material_signature:(material_signature move.fen_after)
   in
-  let%lwt res = Db.record_position pool ~game_id ~move ~fen_id in
+  let%lwt res = Db.record_position pool ~game_id ~move ~fen_id ~side_to_move in
   let%lwt () = or_fail res in
   let%lwt embedding = Embedder.embed ~fen:move.fen_after in
   let%lwt res = Db.record_embedding pool ~fen_id ~embedding ~version:Embedder.version in

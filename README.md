@@ -26,13 +26,13 @@ Retrieval system for chess training that combines a relational database (PGN gam
 ## Components
 
 - **PostgreSQL + pgvector**: Stores players, games, moves, and embeddings. Launch via `docker-compose up -d`.
-- **OCaml ingestion service**: Parses PGN files, generates FEN positions with placeholder tracking, computes engineered features, and stores both relational rows and vector embeddings.
-- **FEN Generator**: Produces FEN notation for each position with correct move numbers and side-to-move tracking (placeholder board state for now).
+- **OCaml ingestion service**: Streams PGNs, preserves comments/variations/NAGs per move, generates placeholder-board FENs with accurate metadata, and persists relational rows plus embeddings.
+- **FEN Generator**: Produces placeholder-board FEN strings while keeping side-to-move, castling rights, and en-passant squares aligned with the recorded move metadata.
 - **Schema definition**: `sql/schema.sql` can be applied to the Postgres instance to bootstrap tables, indexes, and helper views/materialized views for thematic queries.
 
 ## Performance
 
-Benchmarked on TWIC 1611 (4.2MB, 4,875 games):
+Benchmarked on [TWIC 1611](https://theweekinchess.com/twic) (4.2MB, 4,875 games):
 
 - **Ingestion**: 5:27 minutes (~15 games/sec, ~1,310 positions/sec)
 - **Positions tracked**: 428,853 move-level entries
@@ -67,6 +67,8 @@ Benchmarked on TWIC 1611 (4.2MB, 4,875 games):
    ```
 
 The executable streams PGN games, generates placeholder FENs for each position, deduplicates positions, produces embeddings (via a pluggable provider), and persists metadata ready for hybrid SQL + vector search queries.
+
+Checksums are computed from the PGN file contents, so re-ingesting an updated file properly records a new batch. Each stored move retains pre/post comments, side-variations, and NAGs, exposing richer annotations alongside the main line.
 
 **Note**: Current version (0.0.2) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
 

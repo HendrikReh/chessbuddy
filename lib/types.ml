@@ -48,6 +48,10 @@ module Move_feature = struct
     is_check : bool;
     is_mate : bool;
     motifs : string list;
+    comments_before : string list;
+    comments_after : string list;
+    variations : string list;
+    nags : int list;
   } [@@deriving show, yojson]
 end
 

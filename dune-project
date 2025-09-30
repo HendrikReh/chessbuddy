@@ -1,5 +1,5 @@
 (lang dune 3.10)
-(version 0.0.2)
+(version 0.0.3)
 (name chessbuddy)
 (generate_opam_files true)
 

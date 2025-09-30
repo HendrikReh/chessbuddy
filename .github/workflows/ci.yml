@@ -30,6 +30,19 @@ jobs:
         ocaml-compiler: ${{ matrix.ocaml-compiler }}
         dune-cache: true
 
+    - name: Install libpq (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew update
+        brew install libpq
+        if [ -d /opt/homebrew/opt/libpq ]; then
+          LIBPQ_PREFIX=/opt/homebrew/opt/libpq
+        else
+          LIBPQ_PREFIX=/usr/local/opt/libpq
+        fi
+        echo "$LIBPQ_PREFIX/bin" >> $GITHUB_PATH
+        echo "PKG_CONFIG_PATH=$LIBPQ_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
     - name: Install dependencies
       run: opam install . --deps-only --with-test
     

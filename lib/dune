@@ -1,0 +1,17 @@
+(library
+ (name chessbuddy)
+ (public_name chessbuddy.core)
+ (preprocess (pps lwt_ppx ppx_deriving.show ppx_yojson_conv))
+ (libraries
+  lwt
+  lwt.unix
+  logs
+  logs.fmt
+  pgn_parser
+  ocamlchess
+  caqti
+  caqti-lwt
+  caqti-driver-postgresql
+  yojson
+  ptime
+  digestif))

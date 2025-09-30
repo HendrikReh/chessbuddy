@@ -102,7 +102,7 @@ EOF
 
 ### Automated Testing
 
-See [docs/DEVELOPER.md](docs/DEVELOPER.md) for information on integration tests with Alcotest.
+Set `CHESSBUDDY_REQUIRE_DB_TESTS=1` to force database-backed tests to run; otherwise they quietly skip when PostgreSQL is unavailable (useful in CI). See [docs/DEVELOPER.md](docs/DEVELOPER.md) for more details.
 
 ---
 

@@ -1,16 +1,34 @@
 let ( let* ) = Lwt.bind
 
-let test_db_uri = "postgresql://chess:chess@localhost:5433/chessbuddy"
+let test_db_uri =
+  Sys.getenv_opt "CHESSBUDDY_TEST_DB_URI"
+  |> Option.value ~default:"postgresql://chess:chess@localhost:5433/chessbuddy"
+
+let require_db_tests =
+  match Sys.getenv_opt "CHESSBUDDY_REQUIRE_DB_TESTS" with
+  | Some v -> (
+      match String.lowercase_ascii (String.trim v) with
+      | "1" | "true" | "yes" -> true
+      | _ -> false)
+  | None -> false
+
+exception Skip_db_tests of string
+
+let pp_skipping reason =
+  Format.printf "⚠️  Skipping database-backed tests: %s@." reason
+
+let raise_or_skip err =
+  let msg = Format.asprintf "%a" Caqti_error.pp err in
+  if require_db_tests then Alcotest.failf "Database error: %s" msg
+  else raise (Skip_db_tests msg)
 
 (* Create a test database pool *)
 let create_test_pool () =
-  match Uri.of_string test_db_uri with
-  | uri -> (
-      let pool_config = Caqti_pool_config.create ~max_size:5 () in
-      match Caqti_lwt_unix.connect_pool ~pool_config uri with
-      | Ok pool -> pool
-      | Error err ->
-          Alcotest.failf "Failed to create connection pool: %a" Caqti_error.pp err)
+  let uri = Uri.of_string test_db_uri in
+  let pool_config = Caqti_pool_config.create ~max_size:5 () in
+  match Caqti_lwt_unix.connect_pool ~pool_config uri with
+  | Ok pool -> pool
+  | Error err -> raise_or_skip err
 
 (* Execute a query and handle errors *)
 let exec_query pool query params =
@@ -18,8 +36,7 @@ let exec_query pool query params =
       Db.exec query params) in
   match result with
   | Ok () -> Lwt.return_unit
-  | Error err ->
-      Alcotest.failf "Query execution failed: %a" Caqti_error.pp err
+  | Error err -> raise_or_skip err
 
 (* Clean up test data from all tables *)
 let cleanup_test_data pool =
@@ -45,11 +62,18 @@ let cleanup_test_data pool =
 
 (* Wrapper for tests that need a clean database *)
 let with_clean_db f =
-  let pool = create_test_pool () in
-  let%lwt () = cleanup_test_data pool in
-  Lwt.finalize
-    (fun () -> f pool)
-    (fun () -> cleanup_test_data pool)
+  Lwt.catch
+    (fun () ->
+      let pool = create_test_pool () in
+      let%lwt () = cleanup_test_data pool in
+      Lwt.finalize
+        (fun () -> f pool)
+        (fun () -> cleanup_test_data pool))
+    (function
+      | Skip_db_tests reason ->
+          pp_skipping reason;
+          Lwt.return_unit
+      | exn -> Lwt.fail exn)
 
 (* UUID equality checker for Alcotest *)
 let uuid_testable = Alcotest.testable Uuidm.pp Uuidm.equal

@@ -15,6 +15,7 @@
   (ocaml (>= 5.1))
   dune
   lwt
+  lwt_ssl
   lwt_ppx
   logs
   fmt
@@ -29,6 +30,8 @@
   digestif
   ppx_deriving
   ppx_yojson_conv
+  cohttp-lwt-unix
+  tls
   uri
   uuidm
   (alcotest :with-test)

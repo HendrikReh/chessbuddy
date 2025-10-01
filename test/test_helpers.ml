@@ -1,13 +1,16 @@
+open! Base
+module Fmt = Stdlib.Format
+
 let ( let* ) = Lwt.bind
 
 let test_db_uri =
-  Sys.getenv_opt "CHESSBUDDY_TEST_DB_URI"
+  Stdlib.Sys.getenv_opt "CHESSBUDDY_TEST_DB_URI"
   |> Option.value ~default:"postgresql://chess:chess@localhost:5433/chessbuddy"
 
 let require_db_tests =
-  match Sys.getenv_opt "CHESSBUDDY_REQUIRE_DB_TESTS" with
+  match Stdlib.Sys.getenv_opt "CHESSBUDDY_REQUIRE_DB_TESTS" with
   | Some v -> (
-      match String.lowercase_ascii (String.trim v) with
+      match String.lowercase (String.strip v) with
       | "1" | "true" | "yes" -> true
       | _ -> false)
   | None -> false
@@ -15,10 +18,10 @@ let require_db_tests =
 exception Skip_db_tests of string
 
 let pp_skipping reason =
-  Format.printf "⚠️  Skipping database-backed tests: %s@." reason
+  Fmt.printf "⚠️  Skipping database-backed tests: %s@." reason
 
 let raise_or_skip err =
-  let msg = Format.asprintf "%a" Caqti_error.pp err in
+  let msg = Fmt.asprintf "%a" Caqti_error.pp err in
   if require_db_tests then Alcotest.failf "Database error: %s" msg
   else raise (Skip_db_tests msg)
 

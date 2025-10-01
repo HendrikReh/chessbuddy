@@ -1,3 +1,4 @@
+open! Base
 open Test_helpers
 
 let ( >|= ) = Lwt.( >|= )
@@ -6,8 +7,8 @@ let ( let* ) = Lwt.bind
 (* Custom float array type for embeddings - encode as pgvector format *)
 let float_array =
   let encode arr =
-    let str_arr = Array.map string_of_float arr in
-    Ok ("[" ^ String.concat "," (Array.to_list str_arr) ^ "]")
+    let str_arr = Array.map arr ~f:Float.to_string in
+    Ok ("[" ^ String.concat ~sep:"," (Array.to_list str_arr) ^ "]")
   in
   let decode _str =
     Ok (Array.of_list [ 0.0 ])
@@ -26,7 +27,7 @@ let uuid =
   Caqti_type.(custom ~encode ~decode string)
 
 (* Helper to create a test embedding vector of given dimension *)
-let make_embedding dim value = Array.make dim value
+let make_embedding dim value = Array.init dim ~f:(fun _ -> value)
 
 (* Test embedding insertion *)
 let test_record_embedding () =
@@ -85,7 +86,7 @@ let test_embedding_dimension_constraint () =
               let err_msg = Caqti_error.show err in
               Alcotest.(check bool)
                 "Error message mentions dimension" true
-                (String.length err_msg > 0);
+                (not (String.is_empty err_msg));
               Lwt.return_unit))
 
 (* Test vector similarity search - cosine distance *)
@@ -145,11 +146,12 @@ let test_cosine_similarity () =
           Alcotest.(check int) "Got 2 results" 2 (List.length results);
 
           (* First result should be closer to 0.15 (fen_id1 with 0.1 embedding) *)
-          let first_id, first_dist = List.hd results in
+          let first_id, first_dist = List.hd_exn results in
           Alcotest.(check uuid_testable)
             "First result is fen_id1" fen_id1 first_id;
           Alcotest.(check bool)
-            "First distance is smaller" true (first_dist < 1.0);
+            "First distance is smaller" true
+            Float.(first_dist < 1.0);
 
           Lwt.return_unit))
 

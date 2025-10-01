@@ -63,6 +63,11 @@ sequenceDiagram
 The sequence highlights when each module participates, the order of database
 writes, and how pgvector storage happens only after deduplicating FENs.
 
+## Code conventions
+
+- All OCaml modules must `open! Base` (or otherwise rely on Base-prefixed modules) so the Jane Street prelude is consistently applied across the codebase. Reach for `Stdlib.<module>` only when Base intentionally omits equivalent functionality (e.g., filename helpers).
+- Keep module layout aligned with `lib/` and expose public interfaces through `lib/chessbuddy.ml`.
+
 ## CLI Usage
 
 Running `dune exec bin/ingest.exe --` now expects a subcommand. Invoking the binary

@@ -1,25 +1,27 @@
+open! Base
 open Cmdliner
 open Chessbuddy
+module Fmt = Stdlib.Format
 
 let uri_conv : Uri.t Arg.conv =
   let parse s =
     try Ok (Uri.of_string s)
     with exn ->
       let msg =
-        Format.asprintf "invalid URI %S (%s)" s (Printexc.to_string exn)
+        Fmt.asprintf "invalid URI %S (%s)" s (Stdlib.Printexc.to_string exn)
       in
       Error (`Msg msg)
   in
-  let print fmt uri = Format.pp_print_string fmt (Uri.to_string uri) in
+  let print fmt uri = Fmt.pp_print_string fmt (Uri.to_string uri) in
   Arg.conv ~docv:"URI" (parse, print)
 
 let uuid_conv : Uuidm.t Arg.conv =
   let parse s =
     match Uuidm.of_string s with
     | Some uuid -> Ok uuid
-    | None -> Error (`Msg (Format.asprintf "invalid UUID %S" s))
+    | None -> Error (`Msg (Fmt.asprintf "invalid UUID %S" s))
   in
-  let print fmt uuid = Format.pp_print_string fmt (Uuidm.to_string uuid) in
+  let print fmt uuid = Fmt.pp_print_string fmt (Uuidm.to_string uuid) in
   Arg.conv ~docv:"UUID" (parse, print)
 
 let take n lst =
@@ -30,7 +32,9 @@ let take n lst =
   in
   aux [] n lst
 
-let format_exn = function Failure msg -> msg | exn -> Printexc.to_string exn
+let format_exn = function
+  | Failure msg -> msg
+  | exn -> Stdlib.Printexc.to_string exn
 
 let run_lwt action =
   let open Lwt.Infix in
@@ -38,7 +42,7 @@ let run_lwt action =
     (Lwt.catch
        (fun () -> action () >|= fun () -> `Ok ())
        (fun exn ->
-         let msg = Format.asprintf "error: %s" (format_exn exn) in
+         let msg = Fmt.asprintf "error: %s" (format_exn exn) in
          Lwt.return (`Error (false, msg))))
 
 let pp_timestamp ts = Ptime.to_rfc3339 ~tz_offset_s:0 ts
@@ -65,24 +69,27 @@ let command_catalog =
 
 let show_catalog topic =
   let print_entry (name, summary, usage) =
-    Format.printf "%-14s %s@." name summary;
-    Format.printf "              Usage: %s@.@." usage
+    Fmt.printf "%-14s %s@." name summary;
+    Fmt.printf "              Usage: %s@.@." usage
   in
   match topic with
   | None ->
-      Format.printf "Available commands:@.@.";
-      List.iter print_entry command_catalog;
+      Fmt.printf "Available commands:@.@.";
+      List.iter command_catalog ~f:print_entry;
       `Ok ()
   | Some raw -> (
-      let topic = String.lowercase_ascii raw in
-      let matches (name, _, _) = String.lowercase_ascii name = topic in
-      match List.find_opt matches command_catalog with
+      let topic = String.lowercase raw in
+      let matches (name, _, _) = String.equal (String.lowercase name) topic in
+      match
+        List.find_map command_catalog ~f:(fun entry ->
+            if matches entry then Some entry else None)
+      with
       | Some entry ->
           print_entry entry;
           `Ok ()
       | None ->
-          Format.printf "Unknown command %s@.@." raw;
-          List.iter print_entry command_catalog;
+          Fmt.printf "Unknown command %s@.@." raw;
+          List.iter command_catalog ~f:print_entry;
           `Ok ())
 
 let help_term =
@@ -101,24 +108,21 @@ let ingest_action uri pgn_path batch_label dry_run =
     if dry_run then (
       Ingestion_pipeline.inspect_file (module Pgn_source.Default) ~pgn_path
       >|= fun summary ->
-      Format.printf "PGN dry-run summary:@.";
-      Format.printf "  Games: %d@." summary.total_games;
-      Format.printf "  Moves: %d@." summary.total_moves;
-      Format.printf "  Unique players: %d@." summary.unique_players;
+      Fmt.printf "PGN dry-run summary:@.";
+      Fmt.printf "  Games: %d@." summary.total_games;
+      Fmt.printf "  Moves: %d@." summary.total_moves;
+      Fmt.printf "  Unique players: %d@." summary.unique_players;
       let preview = take 5 summary.players in
       (match preview with
       | [] -> ()
       | players ->
-          Format.printf "  Sample players:@.";
-          List.iter
-            (fun (name, fide) ->
+          Fmt.printf "  Sample players:@.";
+          List.iter players ~f:(fun (name, fide) ->
               match fide with
-              | None -> Format.printf "    - %s@." name
-              | Some id -> Format.printf "    - %s (FIDE %s)@." name id)
-            players);
-      if summary.unique_players > List.length preview then
-        Format.printf "  ...@.";
-      Format.printf "Use without --dry-run to persist results.@.";
+              | None -> Fmt.printf "    - %s@." name
+              | Some id -> Fmt.printf "    - %s (FIDE %s)@." name id));
+      if summary.unique_players > List.length preview then Fmt.printf "  ...@.";
+      Fmt.printf "Use without --dry-run to persist results.@.";
       ())
     else
       Ingestion_pipeline.with_pool uri (fun pool ->
@@ -127,8 +131,7 @@ let ingest_action uri pgn_path batch_label dry_run =
             pool
             ~embedder:(module Embedder.Constant)
             ~pgn_path ~batch_label)
-      >|= fun () ->
-      Format.printf "Ingestion completed for label %s.@." batch_label
+      >|= fun () -> Fmt.printf "Ingestion completed for label %s.@." batch_label
   in
   run_lwt action
 
@@ -172,19 +175,17 @@ let batches_list_action uri limit =
     | Ok batches ->
         let () =
           match batches with
-          | [] -> Format.printf "No batches found.@."
+          | [] -> Fmt.printf "No batches found.@."
           | batches ->
-              Format.printf "%-38s  %-12s  %-20s  %s@." "Batch ID" "Label"
+              Fmt.printf "%-38s  %-12s  %-20s  %s@." "Batch ID" "Label"
                 "Ingested At" "Source";
-              List.iter
-                (fun (batch : Database.batch_overview) ->
-                  let source = Filename.basename batch.source_path in
-                  Format.printf "%-38s  %-12s  %-20s  %s@."
+              List.iter batches ~f:(fun (batch : Database.batch_overview) ->
+                  let source = Stdlib.Filename.basename batch.source_path in
+                  Fmt.printf "%-38s  %-12s  %-20s  %s@."
                     (Uuidm.to_string batch.batch_id)
                     batch.label
                     (pp_timestamp batch.ingested_at)
                     source)
-                batches
         in
         Lwt.return_unit
   in
@@ -216,18 +217,18 @@ let batches_show_action uri batch_id =
     | Error err -> Lwt.fail_with (Caqti_error.show err)
     | Ok None ->
         Lwt.fail_with
-          (Format.asprintf "No batch found for id %s" (Uuidm.to_string batch_id))
+          (Fmt.asprintf "No batch found for id %s" (Uuidm.to_string batch_id))
     | Ok (Some summary) ->
-        Format.printf "Batch %s@." (Uuidm.to_string summary.overview.batch_id);
-        Format.printf "  Label: %s@." summary.overview.label;
-        Format.printf "  Source: %s@." summary.overview.source_path;
-        Format.printf "  Checksum: %s@." summary.overview.checksum;
-        Format.printf "  Ingested at: %s@."
+        Fmt.printf "Batch %s@." (Uuidm.to_string summary.overview.batch_id);
+        Fmt.printf "  Label: %s@." summary.overview.label;
+        Fmt.printf "  Source: %s@." summary.overview.source_path;
+        Fmt.printf "  Checksum: %s@." summary.overview.checksum;
+        Fmt.printf "  Ingested at: %s@."
           (pp_timestamp summary.overview.ingested_at);
-        Format.printf "  Games: %d@." summary.games_count;
-        Format.printf "  Positions: %d@." summary.position_count;
-        Format.printf "  Unique FENs: %d@." summary.unique_fens;
-        Format.printf "  Embeddings: %d@." summary.embedding_count;
+        Fmt.printf "  Games: %d@." summary.games_count;
+        Fmt.printf "  Positions: %d@." summary.position_count;
+        Fmt.printf "  Unique FENs: %d@." summary.unique_fens;
+        Fmt.printf "  Embeddings: %d@." summary.embedding_count;
         Lwt.return_unit
   in
   run_lwt action
@@ -263,7 +264,7 @@ let players_sync_action uri pgn_path =
         Ingestion_pipeline.sync_players_from_pgn
           (module Pgn_source.Default)
           pool ~pgn_path)
-    >|= fun count -> Format.printf "Upserted %d unique players.@." count
+    >|= fun count -> Fmt.printf "Upserted %d unique players.@." count
   in
   run_lwt action
 
@@ -298,14 +299,12 @@ let health_check_action uri =
     >>= function
     | Error err -> Lwt.fail_with (Caqti_error.show err)
     | Ok report ->
-        Format.printf "Database: %s@." report.database_name;
-        Format.printf "Server version: %s@." report.server_version;
-        Format.printf "Extensions:@.";
-        List.iter
-          (fun (name, present) ->
+        Fmt.printf "Database: %s@." report.database_name;
+        Fmt.printf "Server version: %s@." report.server_version;
+        Fmt.printf "Extensions:@.";
+        List.iter report.extensions ~f:(fun (name, present) ->
             let status = if present then "ok" else "missing" in
-            Format.printf "  - %-10s %s@." name status)
-          report.extensions;
+            Fmt.printf "  - %-10s %s@." name status);
         Lwt.return_unit
   in
   run_lwt action
@@ -335,4 +334,4 @@ let chessbuddy_cmd =
     (Cmd.info "chessbuddy" ~doc)
     [ ingest_cmd; batches_cmd; players_cmd; health_group; help_term ]
 
-let () = exit (Cmd.eval chessbuddy_cmd)
+let () = Stdlib.exit (Cmd.eval chessbuddy_cmd)

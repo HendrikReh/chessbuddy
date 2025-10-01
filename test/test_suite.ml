@@ -1,3 +1,5 @@
+open! Base
+
 (* Main test suite runner *)
 
 let () =

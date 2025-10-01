@@ -4,6 +4,7 @@
  (preprocess
   (pps lwt_ppx ppx_deriving.show ppx_yojson_conv))
  (libraries
+  base
   lwt
   lwt.unix
   logs

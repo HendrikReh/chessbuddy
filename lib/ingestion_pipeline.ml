@@ -1,3 +1,4 @@
+open! Base
 module Db = Database
 
 module type EMBEDDER = sig
@@ -13,15 +14,15 @@ end
 module Player_key = struct
   type t = string * string option
 
-  let normalize name = String.trim name |> String.lowercase_ascii
+  let normalize name = String.strip name |> String.lowercase
 
   let compare (name_a, fide_a) (name_b, fide_b) =
     match String.compare (normalize name_a) (normalize name_b) with
-    | 0 -> compare fide_a fide_b
+    | 0 -> Option.compare String.compare fide_a fide_b
     | diff -> diff
 end
 
-module Player_set = Set.Make (Player_key)
+module Player_set = Stdlib.Set.Make (Player_key)
 
 type inspection_summary = {
   total_games : int;
@@ -31,16 +32,16 @@ type inspection_summary = {
 }
 
 let compute_checksum path =
-  let ic = open_in_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ic)
-    (fun () ->
-      let chunk = Bytes.create 4096 in
+  let ic = Stdlib.open_in_bin path in
+  Exn.protect
+    ~finally:(fun () -> Stdlib.close_in_noerr ic)
+    ~f:(fun () ->
+      let chunk = Stdlib.Bytes.create 4096 in
       let rec loop ctx =
-        match input ic chunk 0 (Bytes.length chunk) with
+        match Stdlib.input ic chunk 0 (Stdlib.Bytes.length chunk) with
         | 0 -> ctx
         | len ->
-            let data = Bytes.sub_string chunk 0 len in
+            let data = Stdlib.Bytes.sub_string chunk 0 len in
             let ctx = Digestif.SHA256.feed_string ctx data in
             loop ctx
       in
@@ -76,10 +77,14 @@ let material_signature board =
 let motifs_for_move (_move : Types.Move_feature.t) = []
 
 let fen_components fen =
-  match String.split_on_char ' ' fen with
+  match String.split fen ~on:' ' with
   | _board :: active :: castling :: en_passant :: _halfmove :: _fullmove :: _ ->
-      let side_to_move = if String.length active > 0 then active.[0] else 'w' in
-      let en_passant = if en_passant = "-" then None else Some en_passant in
+      let side_to_move =
+        if String.length active > 0 then String.get active 0 else 'w'
+      in
+      let en_passant =
+        if String.equal en_passant "-" then None else Some en_passant
+      in
       (side_to_move, castling, en_passant)
   | _ -> ('w', "-", None)
 
@@ -128,9 +133,10 @@ let ingest_file (module Source : PGN_SOURCE) pool
 let inspect_file (module Source : PGN_SOURCE) ~pgn_path =
   let open Lwt.Infix in
   let add_player set name fide_id =
-    match String.trim name with
+    match String.strip name with
     | "" -> set
-    | trimmed -> Player_set.add (trimmed, Option.map String.trim fide_id) set
+    | trimmed ->
+        Player_set.add (trimmed, Option.map ~f:String.strip fide_id) set
   in
   Source.fold_games pgn_path ~init:(0, 0, Player_set.empty)
     ~f:(fun (games, moves, players) game ->
@@ -156,9 +162,10 @@ let inspect_file (module Source : PGN_SOURCE) ~pgn_path =
 let sync_players_from_pgn (module Source : PGN_SOURCE) pool ~pgn_path =
   let open Lwt.Infix in
   let add_player set name fide_id =
-    match String.trim name with
+    match String.strip name with
     | "" -> set
-    | trimmed -> Player_set.add (trimmed, Option.map String.trim fide_id) set
+    | trimmed ->
+        Player_set.add (trimmed, Option.map ~f:String.strip fide_id) set
   in
   Source.fold_games pgn_path ~init:Player_set.empty ~f:(fun players game ->
       let players =

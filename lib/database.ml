@@ -1,3 +1,5 @@
+open! Base
+
 let ( let+ ) = Lwt.map
 let ( let* ) = Lwt.bind
 
@@ -25,8 +27,10 @@ let date =
 let string_array =
   let encode arr =
     (* Encode as PostgreSQL array: {elem1,elem2,...} *)
-    let escaped = Array.map (fun s -> "\"" ^ String.escaped s ^ "\"") arr in
-    Ok ("{" ^ String.concat "," (Array.to_list escaped) ^ "}")
+    let escaped =
+      Array.map arr ~f:(fun s -> "\"" ^ Stdlib.String.escaped s ^ "\"")
+    in
+    Ok ("{" ^ String.concat ~sep:"," (Array.to_list escaped) ^ "}")
   in
   let decode str =
     (* Simple decode - just pass through PostgreSQL array string *)
@@ -39,8 +43,8 @@ let string_array =
 (* Custom float array for embeddings - encode as pgvector format *)
 let float_array =
   let encode arr =
-    let str_arr = Array.map string_of_float arr in
-    Ok ("[" ^ String.concat "," (Array.to_list str_arr) ^ "]")
+    let str_arr = Array.map arr ~f:Float.to_string in
+    Ok ("[" ^ String.concat ~sep:"," (Array.to_list str_arr) ^ "]")
   in
   let decode _str =
     (* Simple passthrough for now *)
@@ -86,7 +90,7 @@ let or_fail = function
   | Ok v -> Lwt.return v
   | Error err -> Lwt.fail_with (Caqti_error.show err)
 
-let normalize_name name = String.trim name |> String.lowercase_ascii
+let normalize_name name = String.strip name |> String.lowercase
 
 let find_player_by_fide_query =
   let open Caqti_request.Infix in
@@ -187,7 +191,7 @@ let insert_game_query =
 
 let record_game pool ~white_id ~black_id ~(header : Types.Game_header.t)
     ~source_pgn ~batch_id =
-  let game_date = Option.map Ptime.to_date header.game_date in
+  let game_date = Option.map header.game_date ~f:Ptime.to_date in
   let header_data = (header.event, header.site, game_date, header.round) in
   let opening_data =
     (header.eco, header.opening, header.white_elo, header.black_elo)
@@ -249,7 +253,7 @@ let upsert_fen pool ~(fen_text : string) ~(side_to_move : char)
     ~(material_signature : string) =
   let params =
     ( fen_text,
-      String.make 1 side_to_move,
+      String.of_char side_to_move,
       castling,
       en_passant,
       material_signature )
@@ -260,7 +264,7 @@ let upsert_fen pool ~(fen_text : string) ~(side_to_move : char)
 let record_position pool ~game_id ~(move : Types.Move_feature.t) ~fen_id
     ~side_to_move =
   let header =
-    (game_id, move.ply_number, fen_id, String.make 1 side_to_move, move.san)
+    (game_id, move.ply_number, fen_id, String.of_char side_to_move, move.san)
   in
   let body = (move.uci, move.fen_before, move.fen_after, None) in
   let state = (move.eval_cp, move.is_capture, move.is_check) in
@@ -351,11 +355,10 @@ let list_batches pool ~limit =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
       let* rows_res = Db.collect_list list_batches_query limit in
       Lwt.return
-        (Result.map
-           (List.map
-              (fun (batch_id, label, source_path, checksum, ingested_at) ->
-                { batch_id; label; source_path; checksum; ingested_at }))
-           rows_res))
+        (Result.map rows_res ~f:(fun rows ->
+             List.map rows
+               ~f:(fun (batch_id, label, source_path, checksum, ingested_at) ->
+                 { batch_id; label; source_path; checksum; ingested_at }))))
 
 let get_batch_summary pool ~batch_id =
   let bind_result res f =

@@ -1,3 +1,4 @@
+open! Base
 open Lwt.Infix
 open Test_helpers
 

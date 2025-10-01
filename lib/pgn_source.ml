@@ -1,6 +1,14 @@
-module String_map = Map.Make (String)
+open! Base
 
-let sanitize value = value |> String.trim |> String.lowercase_ascii
+module String_key = struct
+  type t = string
+
+  let compare = String.compare
+end
+
+module String_map = Stdlib.Map.Make (String_key)
+
+let sanitize value = value |> String.strip |> String.lowercase
 
 let string_has predicate s =
   let rec loop i =
@@ -12,32 +20,33 @@ let string_has predicate s =
 
 let starts_with str idx prefix =
   let len = String.length prefix in
-  idx + len <= String.length str && String.sub str idx len = prefix
+  idx + len <= String.length str
+  && String.equal (String.sub str ~pos:idx ~len) prefix
 
 let parse_header_line map line =
-  let line = String.trim line in
-  if line = "" || line.[0] <> '[' then map
+  let line = String.strip line in
+  if String.is_empty line || not (Char.equal (String.get line 0) '[') then map
   else
     let inside =
       let len = String.length line in
-      if len < 2 then "" else String.sub line 1 (len - 2)
+      if len < 2 then "" else String.sub line ~pos:1 ~len:(len - 2)
     in
-    match String.split_on_char '"' inside with
+    match String.split inside ~on:'"' with
     | before :: value :: _ ->
-        let key = before |> String.trim |> sanitize in
+        let key = before |> String.strip |> sanitize in
         String_map.add key value map
     | _ -> map
 
 let parse_headers lines =
-  List.fold_left parse_header_line String_map.empty lines
+  List.fold lines ~init:String_map.empty ~f:parse_header_line
 
 let parse_date value =
-  match String.split_on_char '.' value with
+  match String.split value ~on:'.' with
   | [ yyyy; mm; dd ] -> (
       try
-        let year = int_of_string yyyy in
-        let month = int_of_string mm in
-        let day = int_of_string dd in
+        let year = Int.of_string yyyy in
+        let month = Int.of_string mm in
+        let day = Int.of_string dd in
         Ptime.of_date (year, month, day)
       with _ -> None)
   | _ -> None
@@ -45,26 +54,28 @@ let parse_date value =
 let header_value headers key =
   match String_map.find_opt (sanitize key) headers with
   | None -> None
-  | Some v -> if v = "?" then None else Some v
+  | Some v -> if String.equal v "?" then None else Some v
 
 let required headers key =
   match header_value headers key with
   | Some v -> v
-  | None -> failwith (Printf.sprintf "Missing PGN header %s" key)
+  | None -> failwith (Stdlib.Printf.sprintf "Missing PGN header %s" key)
 
 let build_header headers =
   let open Types.Game_header in
   {
     event = header_value headers "Event";
     site = header_value headers "Site";
-    game_date = Option.bind (header_value headers "Date") parse_date;
+    game_date = Option.bind (header_value headers "Date") ~f:parse_date;
     round = header_value headers "Round";
     eco = header_value headers "ECO";
     opening = header_value headers "Opening";
     white_player = required headers "White";
     black_player = required headers "Black";
-    white_elo = Option.bind (header_value headers "WhiteElo") int_of_string_opt;
-    black_elo = Option.bind (header_value headers "BlackElo") int_of_string_opt;
+    white_elo =
+      Option.bind (header_value headers "WhiteElo") ~f:Stdlib.int_of_string_opt;
+    black_elo =
+      Option.bind (header_value headers "BlackElo") ~f:Stdlib.int_of_string_opt;
     white_fide_id = header_value headers "WhiteFideId";
     black_fide_id = header_value headers "BlackFideId";
     result = Option.value (header_value headers "Result") ~default:"*";
@@ -73,20 +84,18 @@ let build_header headers =
 
 let sanitize_utf8 str =
   (* Keep only printable ASCII characters to avoid database encoding errors *)
-  let buf = Buffer.create (String.length str) in
-  String.iter
-    (fun c ->
-      let code = Char.code c in
-      if code >= 32 && code < 127 then Buffer.add_char buf c
+  let buf = Stdlib.Buffer.create (String.length str) in
+  String.iter str ~f:(fun c ->
+      let code = Char.to_int c in
+      if code >= 32 && code < 127 then Stdlib.Buffer.add_char buf c
       else if code = 10 || code = 13 || code = 9 then
         (* Keep newlines and tabs *)
-        Buffer.add_char buf c
-      (* Skip non-ASCII bytes entirely to avoid invalid UTF-8 sequences *))
-    str;
-  Buffer.contents buf
+        Stdlib.Buffer.add_char buf c
+      (* Skip non-ASCII bytes entirely to avoid invalid UTF-8 sequences *));
+  Stdlib.Buffer.contents buf
 
 let parse_moves lines =
-  let text = String.concat "\n" lines in
+  let text = String.concat ~sep:"\n" lines in
   let len = String.length text in
   let moves = ref [] in
   let pending_comments = ref [] in
@@ -101,9 +110,9 @@ let parse_moves lines =
   in
 
   let add_comment comment =
-    let comment = String.trim comment in
-    if comment = "" then ()
-    else if !last_token_was_move && !moves <> [] then
+    let comment = String.strip comment in
+    if String.is_empty comment then ()
+    else if !last_token_was_move && not (List.is_empty !moves) then
       update_last (fun m ->
           {
             m with
@@ -114,9 +123,9 @@ let parse_moves lines =
   in
 
   let add_variation variation =
-    let variation = String.trim variation in
-    if variation = "" then ()
-    else if !last_token_was_move && !moves <> [] then
+    let variation = String.strip variation in
+    if String.is_empty variation then ()
+    else if !last_token_was_move && not (List.is_empty !moves) then
       update_last (fun m ->
           {
             m with
@@ -127,7 +136,7 @@ let parse_moves lines =
   in
 
   let add_nag nag =
-    if !last_token_was_move && !moves <> [] then
+    if !last_token_was_move && not (List.is_empty !moves) then
       update_last (fun m ->
           {
             m with
@@ -138,7 +147,7 @@ let parse_moves lines =
 
   let rec skip_whitespace i =
     if i < len then
-      match text.[i] with
+      match String.get text i with
       | ' ' | '\t' | '\n' | '\r' -> skip_whitespace (i + 1)
       | _ -> i
     else i
@@ -148,67 +157,63 @@ let parse_moves lines =
     if i >= len then i
     else
       let j = ref i in
-      while
-        !j < len
-        && Char.code text.[!j] >= Char.code '0'
-        && Char.code text.[!j] <= Char.code '9'
-      do
-        incr j
+      while !j < len && Char.is_digit (String.get text !j) do
+        Int.incr j
       done;
-      if !j < len && text.[!j] = '.' then (
-        while !j < len && text.[!j] = '.' do
-          incr j
+      if !j < len && Char.equal (String.get text !j) '.' then (
+        while !j < len && Char.equal (String.get text !j) '.' do
+          Int.incr j
         done;
         skip_whitespace !j)
       else i
   in
 
   let parse_comment i =
-    let buf = Buffer.create 64 in
+    let buf = Stdlib.Buffer.create 64 in
     let rec loop idx =
-      if idx >= len then (Buffer.contents buf, idx)
+      if idx >= len then (Stdlib.Buffer.contents buf, idx)
       else
-        let c = text.[idx] in
-        if c = '}' then (Buffer.contents buf, idx + 1)
+        let c = String.get text idx in
+        if Char.equal c '}' then (Stdlib.Buffer.contents buf, idx + 1)
         else (
-          Buffer.add_char buf c;
+          Stdlib.Buffer.add_char buf c;
           loop (idx + 1))
     in
     loop i
   in
 
   let parse_variation i =
-    let buf = Buffer.create 128 in
+    let buf = Stdlib.Buffer.create 128 in
     let rec loop depth idx =
-      if idx >= len then (Buffer.contents buf, idx)
+      if idx >= len then (Stdlib.Buffer.contents buf, idx)
       else
-        let c = text.[idx] in
+        let c = String.get text idx in
         match c with
         | '(' ->
-            Buffer.add_char buf c;
+            Stdlib.Buffer.add_char buf c;
             loop (depth + 1) (idx + 1)
         | ')' ->
-            if depth = 1 then (Buffer.contents buf, idx + 1)
+            if depth = 1 then (Stdlib.Buffer.contents buf, idx + 1)
             else (
-              Buffer.add_char buf c;
+              Stdlib.Buffer.add_char buf c;
               loop (depth - 1) (idx + 1))
         | _ ->
-            Buffer.add_char buf c;
+            Stdlib.Buffer.add_char buf c;
             loop depth (idx + 1)
     in
     loop 1 i
   in
 
   let parse_token i =
-    let buf = Buffer.create 32 in
+    let buf = Stdlib.Buffer.create 32 in
     let rec loop idx =
-      if idx >= len then (Buffer.contents buf, idx)
+      if idx >= len then (Stdlib.Buffer.contents buf, idx)
       else
-        match text.[idx] with
-        | ' ' | '\t' | '\n' | '\r' -> (Buffer.contents buf, idx)
-        | '{' | '}' | '(' | ')' -> (Buffer.contents buf, idx)
+        match String.get text idx with
+        | ' ' | '\t' | '\n' | '\r' -> (Stdlib.Buffer.contents buf, idx)
+        | '{' | '}' | '(' | ')' -> (Stdlib.Buffer.contents buf, idx)
         | _ ->
-            Buffer.add_char buf text.[idx];
+            Stdlib.Buffer.add_char buf (String.get text idx);
             loop (idx + 1)
     in
     loop i
@@ -216,30 +221,26 @@ let parse_moves lines =
 
   let parse_nag i =
     let j = ref (i + 1) in
-    while
-      !j < len
-      && Char.code text.[!j] >= Char.code '0'
-      && Char.code text.[!j] <= Char.code '9'
-    do
-      incr j
+    while !j < len && Char.is_digit (String.get text !j) do
+      Int.incr j
     done;
     if !j = i + 1 then (None, i + 1)
     else
-      let value = String.sub text (i + 1) (!j - (i + 1)) in
-      (int_of_string_opt value, !j)
+      let value = String.sub text ~pos:(i + 1) ~len:(!j - (i + 1)) in
+      (Stdlib.int_of_string_opt value, !j)
   in
 
   let add_move san =
-    let san = String.trim san in
-    if san = "" then ()
+    let san = String.strip san in
+    if String.is_empty san then ()
     else
       let fen_before =
-        if !ply = 1 then Fen_generator.starting_position_fen
+        if Int.equal !ply 1 then Fen_generator.starting_position_fen
         else
           Fen_generator.placeholder_fen ~ply_number:(!ply - 1)
             ~side_to_move:!side
       in
-      let next_side = if !side = 'w' then 'b' else 'w' in
+      let next_side = if Char.equal !side 'w' then 'b' else 'w' in
       let fen_after =
         Fen_generator.placeholder_fen ~ply_number:!ply ~side_to_move:next_side
       in
@@ -252,9 +253,10 @@ let parse_moves lines =
           fen_after;
           side_to_move = !side;
           eval_cp = None;
-          is_capture = String.contains san 'x';
-          is_check = string_has (fun c -> c = '+' || c = '#') san;
-          is_mate = String.contains san '#';
+          is_capture = Stdlib.String.contains san 'x';
+          is_check =
+            string_has (fun c -> Char.equal c '+' || Char.equal c '#') san;
+          is_mate = Stdlib.String.contains san '#';
           motifs = [];
           comments_before = List.rev !pending_comments;
           comments_after = [];
@@ -267,7 +269,7 @@ let parse_moves lines =
       pending_variations := [];
       pending_nags := [];
       side := next_side;
-      incr ply;
+      Int.incr ply;
       last_token_was_move := true
   in
 
@@ -277,9 +279,9 @@ let parse_moves lines =
     else if starts_with text i "1-0" then ()
     else if starts_with text i "0-1" then ()
     else if starts_with text i "1/2-1/2" then ()
-    else if text.[i] = '*' then ()
+    else if Char.equal (String.get text i) '*' then ()
     else
-      match text.[i] with
+      match String.get text i with
       | '{' ->
           let comment, next_i = parse_comment (i + 1) in
           add_comment comment;
@@ -296,8 +298,8 @@ let parse_moves lines =
           let next_i = skip_move_number i in
           if next_i = i then
             let token, next_i = parse_token i in
-            if token = "" then loop (i + 1)
-            else if token = "..." then (
+            if String.is_empty token then loop (i + 1)
+            else if String.equal token "..." then (
               last_token_was_move := false;
               loop next_i)
             else (
@@ -308,9 +310,9 @@ let parse_moves lines =
             loop next_i)
       | _ ->
           let token, next_i = parse_token i in
-          let token = String.trim token in
-          if token = "" then loop next_i
-          else if token = "..." then (
+          let token = String.strip token in
+          if String.is_empty token then loop next_i
+          else if String.equal token "..." then (
             last_token_was_move := false;
             loop next_i)
           else (
@@ -320,7 +322,7 @@ let parse_moves lines =
 
   loop 0;
 
-  if !pending_comments <> [] && !moves <> [] then (
+  if (not (List.is_empty !pending_comments)) && not (List.is_empty !moves) then (
     let trailing = List.rev !pending_comments in
     pending_comments := [];
     update_last (fun m ->
@@ -329,7 +331,8 @@ let parse_moves lines =
           Types.Move_feature.comments_after =
             m.Types.Move_feature.comments_after @ trailing;
         }));
-  if !pending_variations <> [] && !moves <> [] then (
+  if (not (List.is_empty !pending_variations)) && not (List.is_empty !moves)
+  then (
     let trailing = List.rev !pending_variations in
     pending_variations := [];
     update_last (fun m ->
@@ -338,7 +341,7 @@ let parse_moves lines =
           Types.Move_feature.variations =
             m.Types.Move_feature.variations @ trailing;
         }));
-  if !pending_nags <> [] && !moves <> [] then (
+  if (not (List.is_empty !pending_nags)) && not (List.is_empty !moves) then (
     let trailing = List.rev !pending_nags in
     pending_nags := [];
     update_last (fun m ->
@@ -351,42 +354,50 @@ let parse_moves lines =
 
 let game_from_block block =
   let lines =
-    block |> String.split_on_char '\n'
-    |> List.filter (fun l -> String.trim l <> "")
+    block |> String.split ~on:'\n'
+    |> List.filter ~f:(fun l -> not (String.is_empty (String.strip l)))
   in
   let header_lines, move_lines =
-    List.partition (fun line -> String.length line > 0 && line.[0] = '[') lines
+    List.partition_tf lines ~f:(fun line ->
+        (not (String.is_empty line)) && Char.equal (String.get line 0) '[')
   in
   let headers = parse_headers header_lines in
   let header = build_header headers in
-  let source_pgn = sanitize_utf8 (String.concat "\n" lines) in
+  let source_pgn = sanitize_utf8 (String.concat ~sep:"\n" lines) in
   let moves = parse_moves move_lines in
   { Types.Game.header; moves; source_pgn }
 
 let fold_games path ~init ~f =
   let%lwt contents = Lwt_io.(with_file ~mode:Input path read) in
-  let lines = String.split_on_char '\n' contents in
+  let lines = String.split contents ~on:'\n' in
   let rec accumulate acc current in_moves = function
     | [] ->
-        let acc = if current = "" then acc else current :: acc in
+        let acc = if String.is_empty current then acc else current :: acc in
         List.rev acc
     | line :: rest ->
-        let trimmed = String.trim line in
-        if trimmed = "" then accumulate acc current in_moves rest
-        else if String.length trimmed > 0 && trimmed.[0] = '[' then
-          (* Header line *)
-          if current <> "" && in_moves then
+        let trimmed = String.strip line in
+        if String.is_empty trimmed then accumulate acc current in_moves rest
+        else if
+          (not (String.is_empty trimmed))
+          && Char.equal (String.get trimmed 0) '['
+        then
+          if
+            (* Header line *)
+            (not (String.is_empty current)) && in_moves
+          then
             (* New game starting - save current and start new *)
             accumulate (current :: acc) line false rest
           else
             (* Continue current game headers *)
             let current =
-              if current = "" then line else current ^ "\n" ^ line
+              if String.is_empty current then line else current ^ "\n" ^ line
             in
             accumulate acc current false rest
         else
           (* Move line *)
-          let current = if current = "" then line else current ^ "\n" ^ line in
+          let current =
+            if String.is_empty current then line else current ^ "\n" ^ line
+          in
           accumulate acc current true rest
   in
   let has_required_headers block =
@@ -394,8 +405,11 @@ let fold_games path ~init ~f =
     let has_substring str sub =
       let rec search pos =
         if pos > String.length str - String.length sub then false
-        else if String.sub str pos (String.length sub) = sub then true
-        else search (pos + 1)
+        else if String.equal (String.sub str ~pos ~len:(String.length sub)) sub
+        then true
+        else
+          let slice = String.sub str ~pos ~len:(String.length sub) in
+          if String.equal slice sub then true else search (pos + 1)
       in
       try search 0 with Invalid_argument _ -> false
     in
@@ -403,9 +417,9 @@ let fold_games path ~init ~f =
   in
   let blocks =
     lines |> accumulate [] "" false
-    |> List.filter (fun block ->
-           let trimmed = String.trim block in
-           trimmed <> "" && has_required_headers trimmed)
+    |> List.filter ~f:(fun block ->
+           let trimmed = String.strip block in
+           (not (String.is_empty trimmed)) && has_required_headers trimmed)
   in
   Lwt_list.fold_left_s
     (fun acc block ->

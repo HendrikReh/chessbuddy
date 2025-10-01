@@ -23,6 +23,8 @@
   caqti-driver-postgresql
   yojson
   ptime
+  base
+  stdio
   cmdliner
   digestif
   ppx_deriving

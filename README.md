@@ -87,6 +87,11 @@ The executable streams PGN games, generates placeholder FENs for each position, 
 
 Checksums are computed from the PGN file contents, so re-ingesting an updated file properly records a new batch. Each stored move retains pre/post comments, side-variations, and NAGs, exposing richer annotations alongside the main line.
 
+## Development guidelines
+
+- All OCaml modules must `open! Base` (or rely on the Base namespace) and only fall back to `Stdlib.<module>` when Base intentionally lacks an equivalent. This keeps the codebase consistent with Jane Street idioms and avoids mixing prelude semantics.
+- Run `dune fmt` before submitting patches, and keep module structure aligned with the library layout in `lib/`.
+
 **Note**: Current version (0.0.2) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
 
 ## Testing

@@ -41,10 +41,18 @@ let test_game_requires_id () =
       expect_parse_error "game missing id"
         [| "retrieve"; "game"; "--db-uri"; "postgresql://example" |])
 
+let test_games_help () =
+  Alcotest_lwt.test_case "games --help" `Quick (fun _switch () ->
+      expect_help "games help" [| "retrieve"; "games"; "--help" |])
+
+let test_games_require_db_uri () =
+  Alcotest_lwt.test_case "games requires db-uri" `Quick (fun _switch () ->
+      expect_parse_error "games missing db-uri" [| "retrieve"; "games" |])
+
 let test_registered_commands () =
   Alcotest_lwt.test_case "command list" `Quick (fun _switch () ->
       let expected =
-        [ "similar"; "game"; "fen"; "player"; "batch"; "export" ]
+        [ "similar"; "game"; "games"; "fen"; "player"; "batch"; "export" ]
       in
       let actual = Retrieve_cli.command_names () in
       Alcotest.(check (list string)) "registered commands" expected actual;
@@ -56,5 +64,7 @@ let tests =
     test_similar_help ();
     test_similar_requires_fen ();
     test_game_requires_id ();
+    test_games_help ();
+    test_games_require_db_uri ();
     test_registered_commands ();
   ]

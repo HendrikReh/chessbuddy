@@ -32,6 +32,7 @@
   uri
   lwt
   lwt.unix
+  unix
   yojson
   ptime
   uuidm))

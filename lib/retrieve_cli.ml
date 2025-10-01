@@ -39,6 +39,36 @@ let run_lwt action =
 
 let pp_timestamp ts = Ptime.to_rfc3339 ~tz_offset_s:0 ts
 
+let format_date_opt = function
+  | None -> "-"
+  | Some date ->
+      let year, month, day = Ptime.to_date date in
+      Fmt.asprintf "%04d-%02d-%02d" year month day
+
+let truncate max_len s =
+  if String.length s <= max_len then s
+  else
+    let usable = if max_len > 1 then max_len - 1 else max_len in
+    String.prefix s usable ^ "…"
+
+let with_raw_mode f =
+  let fd = Unix.descr_of_in_channel Stdlib.stdin in
+  if not (Unix.isatty fd) then f ()
+  else
+    let original = Unix.tcgetattr fd in
+    let raw = { original with Unix.c_echo = false; c_icanon = false } in
+    let set attrs =
+      try Unix.tcsetattr fd Unix.TCSADRAIN attrs with
+      | Unix.Unix_error _ -> ()
+    in
+    Lwt.finalize
+      (fun () ->
+        set raw;
+        f ())
+      (fun () ->
+        set original;
+        Lwt.return_unit)
+
 let fail_on_error = function
   | Ok v -> Lwt.return v
   | Error err -> Lwt.fail_with (Caqti_error.show err)
@@ -147,6 +177,89 @@ let game_action uri game_id show_pgn =
             if show_pgn then Fmt.printf "@[%s@]@." detail.source_pgn
             else Fmt.printf "  (use --pgn to print full PGN record)@.";
             Lwt.return_unit)
+  in
+  run_lwt action
+
+let games_action uri page page_size interactive =
+  let action () =
+    let initial_page = Int.max 1 page in
+    let size = Int.min 200 (Int.max 1 page_size) in
+    let print_page pool current_page =
+      let offset = (current_page - 1) * size in
+      let* games_res = Database.list_games pool ~limit:size ~offset in
+      let* games = fail_on_error games_res in
+      if List.is_empty games then
+        Fmt.printf "No games found for page %d.@." current_page
+      else (
+        Fmt.printf "%-10s  %-24s  %-20s  %-20s  %-5s  %-6s  %-36s@." "Date"
+          "Event" "White" "Black" "Moves" "Result" "Game ID";
+        List.iter games ~f:(fun game ->
+            let date_str = format_date_opt game.Database.game_date in
+            let event =
+              match game.event with None -> "-" | Some e -> truncate 24 e
+            in
+            let white = truncate 20 game.white_player in
+            let black = truncate 20 game.black_player in
+            Fmt.printf "%-10s  %-24s  %-20s  %-20s  %5d  %-6s  %s@." date_str
+              event white black game.move_count game.result
+              (Uuidm.to_string game.game_id)));
+      Fmt.printf "Page %d (page size %d).@." current_page size;
+      Fmt.printf "@?";
+      Lwt.return games
+    in
+    let rec prompt_navigation () =
+      let* () =
+        Lwt_io.write Lwt_io.stdout "Command ([n]ext, [p]rev, [q]uit): "
+      in
+      let* () = Lwt_io.flush Lwt_io.stdout in
+      let* char_opt = Lwt_io.read_char_opt Lwt_io.stdin in
+      match char_opt with
+      | None -> Lwt.return `Quit
+      | Some ch ->
+          let lower = Stdlib.Char.lowercase_ascii ch in
+          let to_echo =
+            match lower with
+            | '\n' | '\r' -> None
+            | _ -> Some ch
+          in
+          let* () =
+            match to_echo with
+            | None -> Lwt.return_unit
+            | Some c -> Lwt_io.write_char Lwt_io.stdout c
+          in
+          let* () = Lwt_io.write_char Lwt_io.stdout '\n' in
+          let* () = Lwt_io.flush Lwt_io.stdout in
+          (match lower with
+          | 'n' | '\n' -> Lwt.return `Next
+          | 'p' -> Lwt.return `Prev
+          | 'q' -> Lwt.return `Quit
+          | _ ->
+              Fmt.printf "Unrecognized command %S.@." (String.of_char ch);
+              Fmt.printf "@?";
+              prompt_navigation ())
+    in
+    let rec loop pool current_page =
+      let* games = print_page pool current_page in
+      let empty_page = List.is_empty games in
+      if not interactive then Lwt.return_unit
+      else if empty_page && current_page = 1 then Lwt.return_unit
+      else (
+        if empty_page then (
+          Fmt.printf "Reached an empty page. Use [p] to go back or [q] to quit.@.";
+          Fmt.printf "@?");
+        let* command = prompt_navigation () in
+        match command with
+        | `Quit -> Lwt.return_unit
+        | `Next -> loop pool (current_page + 1)
+        | `Prev when current_page = 1 ->
+            Fmt.printf "Already at the first page.@.";
+            Fmt.printf "@?";
+            loop pool current_page
+        | `Prev -> loop pool (current_page - 1))
+    in
+    Ingestion_pipeline.with_pool uri (fun pool ->
+        let run () = loop pool initial_page in
+        if interactive then with_raw_mode run else run ())
   in
   run_lwt action
 
@@ -351,6 +464,37 @@ let game_cmd =
   let term = Term.(ret (const game_action $ db_uri $ game_id $ show_pgn)) in
   Cmd.v info term
 
+let games_cmd =
+  let doc = "List stored games with pagination" in
+  let info = Cmd.info "games" ~doc in
+  let db_uri =
+    Arg.(
+      required
+      & opt (some uri_conv) None
+      & info [ "db-uri" ] ~doc:"PostgreSQL connection URI")
+  in
+  let page =
+    Arg.(
+      value & opt int 1
+      & info [ "page" ] ~doc:"Page number (1-based)" ~docv:"PAGE")
+  in
+  let page_size =
+    Arg.(
+      value & opt int 10
+      & info [ "page-size" ] ~doc:"Games per page (max 200)" ~docv:"N")
+  in
+  let interactive =
+    Arg.(
+      value
+      & flag
+      & info [ "interactive"; "i" ]
+          ~doc:"Interactive paging with next/previous prompts")
+  in
+  let term =
+    Term.(ret (const games_action $ db_uri $ page $ page_size $ interactive))
+  in
+  Cmd.v info term
+
 let fen_cmd =
   let doc = "Inspect a stored FEN" in
   let info = Cmd.info "fen" ~doc in
@@ -444,7 +588,9 @@ let export_cmd =
   Cmd.v info term
 
 let commands =
-  [ similar_cmd; game_cmd; fen_cmd; player_cmd; batch_cmd; export_cmd ]
+  [
+    similar_cmd; game_cmd; games_cmd; fen_cmd; player_cmd; batch_cmd; export_cmd;
+  ]
 
 let root_command =
   Cmd.group (Cmd.info "retrieve" ~doc:"Chess retrieval CLI") commands

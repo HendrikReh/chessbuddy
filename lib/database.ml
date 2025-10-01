@@ -115,6 +115,16 @@ type game_detail = {
   move_count : int;
 }
 
+type game_overview = {
+  game_id : Uuidm.t;
+  game_date : Ptime.t option;
+  event : string option;
+  white_player : string;
+  black_player : string;
+  result : string;
+  move_count : int;
+}
+
 type player_overview = {
   player_id : Uuidm.t;
   full_name : string;
@@ -191,6 +201,39 @@ let insert_rating_query =
 let record_rating pool ~player_id ~date ?standard ?rapid () =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
       Db.exec insert_rating_query (player_id, date, standard, rapid))
+
+let ensure_ingestion_batches_table_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:- {sql|
+   CREATE TABLE IF NOT EXISTS ingestion_batches (
+    batch_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    source_path TEXT NOT NULL,
+    label TEXT NOT NULL,
+    checksum TEXT NOT NULL UNIQUE,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )
+  |sql}
+
+let ensure_ingestion_batches_ingested_at_column_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:-
+  "ALTER TABLE ingestion_batches ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+
+let ensure_ingestion_batches_checksum_index_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:-
+  "CREATE UNIQUE INDEX IF NOT EXISTS ingestion_batches_checksum_idx ON ingestion_batches (checksum)"
+
+let ensure_ingestion_batches pool =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt_result.Syntax in
+      let* () = Db.exec ensure_ingestion_batches_table_query () in
+      let* () = Db.exec ensure_ingestion_batches_ingested_at_column_query () in
+      let* () = Db.exec ensure_ingestion_batches_checksum_index_query () in
+      Lwt.return_ok ())
 
 let insert_batch_query =
   let open Caqti_request.Infix in
@@ -444,6 +487,34 @@ let player_search_query =
    LIMIT ?
   |sql}
 
+let games_page_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t2 int int)
+  -->* Caqti_type.(
+         t7 uuid (option date) (option string) string string string int))
+  @:- {sql|
+   WITH move_counts AS (
+     SELECT game_id, COUNT(*)::int AS move_count
+     FROM games_positions
+     GROUP BY game_id
+   )
+   SELECT
+     g.game_id,
+     g.game_date,
+     g.event,
+     w.full_name AS white_name,
+     b.full_name AS black_name,
+     g.result,
+     COALESCE(mc.move_count, 0)
+   FROM games g
+   JOIN players w ON g.white_id = w.player_id
+   JOIN players b ON g.black_id = b.player_id
+   LEFT JOIN move_counts mc ON mc.game_id = g.game_id
+   ORDER BY g.ingested_at DESC, g.game_id DESC
+   LIMIT ?
+   OFFSET ?
+  |sql}
+
 let batches_by_label_query =
   let open Caqti_request.Infix in
   (Caqti_type.(t2 string int)
@@ -612,6 +683,41 @@ let search_players pool ~query ~limit =
                 })
           in
           Lwt.return (Ok overviews))
+
+let list_games pool ~limit ~offset =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt.Infix in
+      Db.collect_list games_page_query (limit, offset) >>= function
+      | Error err -> Lwt.return (Error err)
+      | Ok rows ->
+          let games =
+            List.map rows
+              ~f:(fun
+                  ( game_id,
+                    game_date,
+                    event,
+                    white_player,
+                    black_player,
+                    result,
+                    move_count )
+                ->
+                let game_date_ptime =
+                  Option.bind game_date ~f:(fun date_tuple ->
+                      match Ptime.of_date date_tuple with
+                      | Some t -> Some t
+                      | None -> None)
+                in
+                {
+                  game_id;
+                  game_date = game_date_ptime;
+                  event;
+                  white_player;
+                  black_player;
+                  result;
+                  move_count;
+                })
+          in
+          Lwt.return (Ok games))
 
 let find_batches_by_label pool ~label ~limit =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->

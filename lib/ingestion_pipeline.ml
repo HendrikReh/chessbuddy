@@ -122,6 +122,10 @@ let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id
 
 let ingest_file (module Source : PGN_SOURCE) pool
     ~(embedder : (module EMBEDDER)) ~pgn_path ~batch_label =
+  let%lwt () =
+    let%lwt res = Db.ensure_ingestion_batches pool in
+    or_fail res
+  in
   let checksum = compute_checksum pgn_path in
   let%lwt res =
     Db.create_batch pool ~source_path:pgn_path ~label:batch_label ~checksum

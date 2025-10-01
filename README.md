@@ -45,6 +45,7 @@ Benchmarked on [TWIC 1611](https://theweekinchess.com/twic) (4.2MB, 4,875 games)
 1. Start the database and apply the schema:
 
    ```bash
+   mkdir -p data/db
    docker-compose up -d
    psql "postgresql://chess:chess@localhost:5433/chessbuddy" -f sql/schema.sql
    ```

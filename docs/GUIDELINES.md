@@ -9,6 +9,7 @@ The core OCaml library lives in `lib/`, with small, focused modules for planning
 - `dune exec bin/agents.exe -- --goal "Plan the data ingest"` — run the agent locally after loading `.env`.
 - `dune runtest` — execute the full test suite; add `--watch` for continuous feedback while iterating.
 - `dune exec bin/retrieve.exe -- --help` — discover read-side commands for similarity lookup, player search, batch summaries, and JSON exports.
+- `mkdir -p data/db && docker-compose up -d` — start PostgreSQL with data persisted in `data/db/` outside the container.
 
 ## Coding Style & Naming Conventions
 Follow the established two-space indentation and keep lines under roughly 90 characters. Modules use `CamelCase`, while values, functions, and fields use `snake_case`. Every OCaml implementation must `open! Base` (or use Base-prefixed modules) at the top and prefer Base helpers over the legacy stdlib; reach for `Stdlib.<module>` only when Base intentionally omits an equivalent utility (e.g., filenames). Favor descriptive record labels instead of tuples and make pattern matches exhaustive. Run `ocamlformat` (>=0.27) before committing—`dune fmt` will enforce formatting once the repo carries a `.ocamlformat` file. Handle `Lwt_result` branches explicitly to surface errors cleanly.

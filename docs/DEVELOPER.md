@@ -128,9 +128,12 @@ The project uses PostgreSQL 16 with pgvector extension for hybrid relational + v
 **Starting the database:**
 
 ```bash
+mkdir -p data/db
 docker-compose up -d
 psql "postgresql://chess:chess@localhost:5433/chessbuddy" -f sql/schema.sql
 ```
+
+Persistent storage lives in `data/db/`, so container restarts or image upgrades keep the Postgres instance intact.
 
 ### Schema Components
 

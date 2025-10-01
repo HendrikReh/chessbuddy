@@ -144,7 +144,7 @@ Set `CHESSBUDDY_REQUIRE_DB_TESTS=1` to force database-backed tests to run; other
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-0.0.2-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.3-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/Stage-Experimental-orange.svg" alt="Experimental">
   <img src="https://img.shields.io/badge/Made%20with-OCaml-orange.svg" alt="Made with OCaml">
   <img src="https://img.shields.io/badge/Tests-11%20passing-brightgreen.svg" alt="Tests">

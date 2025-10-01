@@ -86,11 +86,51 @@ type health_report = {
   extensions : (string * bool) list;
 }
 
+type fen_info = {
+  fen_id : Uuidm.t;
+  fen_text : string;
+  side_to_move : char;
+  castling : string;
+  en_passant : string option;
+  material_signature : string;
+  embedding_version : string option;
+  embedding : string option;
+  usage_count : int;
+}
+
+type fen_similarity = {
+  fen_id : Uuidm.t;
+  fen_text : string;
+  embedding_version : string;
+  distance : float;
+  usage_count : int;
+}
+
+type game_detail = {
+  game_id : Uuidm.t;
+  header : Types.Game_header.t;
+  source_pgn : string;
+  batch_label : string option;
+  ingested_at : Ptime.t;
+  move_count : int;
+}
+
+type player_overview = {
+  player_id : Uuidm.t;
+  full_name : string;
+  fide_id : string option;
+  total_games : int;
+  last_played : Ptime.t option;
+  latest_standard_elo : int option;
+}
+
 let or_fail = function
   | Ok v -> Lwt.return v
   | Error err -> Lwt.fail_with (Caqti_error.show err)
 
 let normalize_name name = String.strip name |> String.lowercase
+
+let char_of_string s = if String.length s = 0 then 'w' else String.get s 0
 
 let find_player_by_fide_query =
   let open Caqti_request.Infix in
@@ -275,6 +315,291 @@ let record_position pool ~game_id ~(move : Types.Move_feature.t) ~fen_id
 let record_embedding pool ~fen_id ~embedding ~version =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
       Db.exec insert_embedding_query (fen_id, embedding, version))
+
+let find_fen_id_by_text_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.string -->? uuid)
+  @:- "SELECT fen_id FROM fens WHERE fen_text = ?"
+
+let fetch_fen_query =
+  let open Caqti_request.Infix in
+  (uuid -->? Caqti_type.(t5 string string string (option string) string))
+  @:-
+  "SELECT fen_text, side_to_move, castling_rights, en_passant_file, material_signature\n   FROM fens\n   WHERE fen_id = ?"
+
+let fen_usage_query =
+  let open Caqti_request.Infix in
+  (uuid -->! Caqti_type.int)
+  @:- "SELECT COALESCE(COUNT(*), 0)::int FROM games_positions WHERE fen_id = ?"
+
+let get_fen_embedding_query =
+  let open Caqti_request.Infix in
+  (uuid -->? Caqti_type.(t2 string string))
+  @:-
+  "SELECT embedding::text, embedding_version\n   FROM fen_embeddings\n   WHERE fen_id = ?"
+
+let similar_fens_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t2 uuid int) -->* Caqti_type.(t5 uuid string string float int))
+  @:-
+  {sql|
+   WITH target AS (
+     SELECT embedding FROM fen_embeddings WHERE fen_id = ?
+   ), usage AS (
+     SELECT fen_id, COUNT(*)::int AS usage_count
+     FROM games_positions
+     GROUP BY fen_id
+   )
+   SELECT fe.fen_id,
+          f.fen_text,
+          fe.embedding_version,
+          (fe.embedding <=> (SELECT embedding FROM target))::float AS distance,
+          COALESCE(u.usage_count, 0)
+   FROM fen_embeddings fe
+   JOIN fens f ON fe.fen_id = f.fen_id
+   LEFT JOIN usage u ON u.fen_id = fe.fen_id
+   WHERE (SELECT embedding FROM target) IS NOT NULL
+   ORDER BY distance ASC
+   LIMIT ?
+  |sql}
+
+let game_metadata_query =
+  let open Caqti_request.Infix in
+  let open Caqti_type in
+  let players_type = t2 (t2 string (option string)) (t2 string (option string)) in
+  let details_primary =
+    t4 (option string) (option string) (option string) (option date)
+  in
+  let details_secondary = t3 (option string) (option string) string in
+  let details_tail = t3 (option string) (option int) (option int) in
+  let details_type = t3 details_primary details_secondary details_tail in
+  let ingest_type = t3 (option uuid) (option string) ptime in
+  (uuid -->? t3 players_type details_type ingest_type)
+  @:-
+  {sql|
+   SELECT
+     w.full_name,
+     w.fide_id,
+     b.full_name,
+     b.fide_id,
+     g.event,
+     g.site,
+     g.round,
+     g.game_date,
+     g.eco_code,
+     g.opening_name,
+     g.result,
+     g.termination,
+     g.white_elo,
+     g.black_elo,
+     g.ingestion_batch,
+     ib.label,
+     g.ingested_at
+   FROM games g
+   JOIN players w ON g.white_id = w.player_id
+   JOIN players b ON g.black_id = b.player_id
+   LEFT JOIN ingestion_batches ib ON ib.batch_id = g.ingestion_batch
+   WHERE g.game_id = ?
+  |sql}
+
+let game_source_query =
+  let open Caqti_request.Infix in
+  (uuid -->? Caqti_type.string)
+  @:- "SELECT source_pgn FROM games WHERE game_id = ?"
+
+let game_move_count_query =
+  let open Caqti_request.Infix in
+  (uuid -->! Caqti_type.int)
+  @:- "SELECT COUNT(*)::int FROM games_positions WHERE game_id = ?"
+
+let player_search_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t2 string int)
+  -->*
+  Caqti_type.(t6 uuid string (option string) int (option date) (option int)))
+  @:-
+  {sql|
+   WITH appearances AS (
+     SELECT white_id AS player_id, game_date FROM games
+     UNION ALL
+     SELECT black_id AS player_id, game_date FROM games
+   ), stats AS (
+     SELECT player_id,
+            COUNT(*)::int AS total_games,
+            MAX(game_date) AS last_game
+     FROM appearances
+     GROUP BY player_id
+   )
+   SELECT p.player_id,
+          p.full_name,
+          p.fide_id,
+          COALESCE(s.total_games, 0),
+          s.last_game,
+          r.standard_elo
+   FROM players p
+   LEFT JOIN stats s ON s.player_id = p.player_id
+   LEFT JOIN mv_latest_ratings r ON r.player_id = p.player_id
+   WHERE lower(p.full_name) LIKE lower('%' || ? || '%')
+   ORDER BY COALESCE(s.total_games, 0) DESC, p.created_at DESC
+   LIMIT ?
+  |sql}
+
+let batches_by_label_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t2 string int)
+  -->*
+  Caqti_type.(t5 uuid string string string ptime))
+  @:-
+  {sql|
+   SELECT batch_id, label, source_path, checksum, ingested_at
+   FROM ingestion_batches
+   WHERE lower(label) LIKE lower('%' || ? || '%')
+   ORDER BY ingested_at DESC
+   LIMIT ?
+  |sql}
+
+let get_fen_details pool ~fen_id =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt.Infix in
+      Db.find_opt fetch_fen_query fen_id >>= function
+      | Error err -> Lwt.return (Error err)
+      | Ok None -> Lwt.return (Ok None)
+      | Ok (Some (fen_text, side_to_move_str, castling, en_passant, material_signature)) ->
+          let side_to_move = char_of_string side_to_move_str in
+          Db.find fen_usage_query fen_id >>= function
+          | Error err -> Lwt.return (Error err)
+          | Ok usage_count ->
+              Db.find_opt get_fen_embedding_query fen_id >>= function
+              | Error err -> Lwt.return (Error err)
+              | Ok embedding_row ->
+                  let embedding, embedding_version =
+                    match embedding_row with
+                    | None -> (None, None)
+                    | Some (embedding, version) -> (Some embedding, Some version)
+                  in
+                  let record =
+                    {
+                      fen_id;
+                      fen_text;
+                      side_to_move;
+                      castling;
+                      en_passant;
+                      material_signature;
+                      embedding_version;
+                      embedding;
+                      usage_count;
+                    }
+                  in
+                  Lwt.return (Ok (Some record)))
+
+let get_fen_by_text pool ~fen_text =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt.Infix in
+      Db.find_opt find_fen_id_by_text_query fen_text >>= function
+      | Error err -> Lwt.return (Error err)
+      | Ok None -> Lwt.return (Ok None)
+      | Ok (Some fen_id) -> get_fen_details pool ~fen_id)
+
+let find_similar_fens pool ~fen_id ~limit =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let* rows_res = Db.collect_list similar_fens_query (fen_id, limit) in
+      Lwt.return
+        (Result.map rows_res ~f:(fun rows ->
+             List.map rows ~f:(fun (fen_id, fen_text, version, distance, usage_count) ->
+                 {
+                   fen_id;
+                   fen_text;
+                   embedding_version = version;
+                   distance;
+                   usage_count;
+                 }))))
+
+let get_game_detail pool ~game_id =
+  let open Lwt.Infix in
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.find_opt game_metadata_query game_id >>= function
+      | Error err -> Lwt.return (Error err)
+      | Ok None -> Lwt.return (Ok None)
+      | Ok (Some (((white_name, white_fide), (black_name, black_fide)),
+                  ((event, site, round, game_date), (eco, opening, result),
+                   (termination, white_elo, black_elo)),
+                  (batch_id_opt, batch_label, ingested_at))) ->
+          let game_date_ptime =
+            Option.bind game_date ~f:(fun date_tuple ->
+                match Ptime.of_date date_tuple with Some t -> Some t | None -> None)
+          in
+          Db.find_opt game_source_query game_id >>= function
+          | Error err -> Lwt.return (Error err)
+          | Ok None -> Lwt.return (Ok None)
+          | Ok (Some source_pgn) ->
+              Db.find game_move_count_query game_id >>= function
+              | Error err -> Lwt.return (Error err)
+              | Ok move_count ->
+                  let header : Types.Game_header.t =
+                    {
+                      event;
+                      site;
+                      game_date = game_date_ptime;
+                      round;
+                      eco;
+                      opening;
+                      white_player = white_name;
+                      black_player = black_name;
+                      white_elo;
+                      black_elo;
+                      white_fide_id = white_fide;
+                      black_fide_id = black_fide;
+                      result;
+                      termination;
+                    }
+                  in
+                  let batch_label =
+                    match batch_id_opt with None -> batch_label | Some _ -> batch_label
+                  in
+                  let detail : game_detail =
+                    {
+                      game_id;
+                      header;
+                      source_pgn;
+                      batch_label;
+                      ingested_at;
+                      move_count;
+                    }
+                  in
+                  Lwt.return (Ok (Some detail)))
+
+let search_players pool ~query ~limit =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt.Infix in
+      Db.collect_list player_search_query (query, limit) >>= function
+      | Error err -> Lwt.return (Error err)
+      | Ok rows ->
+          let overviews =
+            List.map rows ~f:(fun (player_id, full_name, fide_id, total_games, last_game, latest_elo) ->
+                let last_played =
+                  Option.bind last_game ~f:(fun date_tuple ->
+                      match Ptime.of_date date_tuple with
+                      | Some t -> Some t
+                      | None -> None)
+                in
+                {
+                  player_id;
+                  full_name;
+                  fide_id;
+                  total_games;
+                  last_played;
+                  latest_standard_elo = latest_elo;
+                })
+          in
+          Lwt.return (Ok overviews))
+
+let find_batches_by_label pool ~label ~limit =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let* rows_res = Db.collect_list batches_by_label_query (label, limit) in
+      Lwt.return
+        (Result.map rows_res ~f:(fun rows ->
+             List.map rows ~f:(fun (batch_id, label, source_path, checksum, ingested_at) ->
+                 { batch_id; label; source_path; checksum; ingested_at }))))
 
 let list_batches_query =
   let open Caqti_request.Infix in

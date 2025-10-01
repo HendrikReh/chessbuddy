@@ -92,6 +92,17 @@ Checksums are computed from the PGN file contents, so re-ingesting an updated fi
 - All OCaml modules must `open! Base` (or rely on the Base namespace) and only fall back to `Stdlib.<module>` when Base intentionally lacks an equivalent. This keeps the codebase consistent with Jane Street idioms and avoids mixing prelude semantics.
 - Run `dune fmt` before submitting patches, and keep module structure aligned with the library layout in `lib/`.
 
+## Retrieval CLI
+
+Use the `chessbuddy-retrieve` executable for read-side workflows:
+
+- `retrieve similar --db-uri URI --fen FEN --k N` – compute pgvector similarity from a stored FEN embedding.
+- `retrieve game --db-uri URI --id UUID [--pgn]` – print game metadata and optionally full PGN.
+- `retrieve fen --db-uri URI --id UUID` – inspect a stored FEN with usage counts and embedding info.
+- `retrieve player --db-uri URI --name TEXT [--limit N]` – search players by name fragment.
+- `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
+- `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
+
 **Note**: Current version (0.0.2) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
 
 ## Testing

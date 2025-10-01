@@ -90,6 +90,14 @@ without arguments prints the list of available commands, mirroring
 - `chessbuddy help [COMMAND]`
   - Describe commands and their parameters; equivalent to running with no args.
 
+The retrieval CLI mirrors this structure via `chessbuddy-retrieve`:
+- `retrieve similar --db-uri URI --fen FEN [--k N]` – vector similarity lookup.
+- `retrieve game --db-uri URI --id UUID [--pgn]` – print stored headers and PGN.
+- `retrieve fen --db-uri URI --id UUID` – inspect a FEN record and embedding.
+- `retrieve player --db-uri URI --name TEXT [--limit N]` – fuzzy player search.
+- `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize recent batches.
+- `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – JSON export for downstream tools.
+
 **Examples:**
 ```bash
 dune exec bin/ingest.exe -- ingest \

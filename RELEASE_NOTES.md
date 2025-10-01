@@ -1,5 +1,39 @@
 # Release Notes
 
+## Version 0.0.3 - Shared CLI Libraries
+
+### Overview
+This release extracts the ingest and retrieve command-line interfaces into shared libraries and adds lightweight Alcotest coverage for their parsing behaviour. Both executables now delegate to the shared modules, making subcommand changes testable without a live database and simplifying future CLI additions.
+
+### Major Features
+
+#### Reusable CLI Modules
+- **Retrieve CLI** (`lib/retrieve_cli.ml`, `chessbuddy.retrieve_cli`)
+  - Exposes `run`, `eval_value`, and `command_names` helpers for reuse.
+  - `bin/retrieve.ml` now simply calls `Retrieve_cli.run ()`.
+  - Dune rules updated to build the CLI library once and link it into the executable and tests.
+- **Ingest CLI** (`lib/ingest_cli.ml`, `chessbuddy.ingest_cli`)
+  - Mirrors the same structure for ingestion subcommands (ingest, batches, players, health, help).
+  - Executable wraps the shared module, keeping runtime wiring minimal.
+
+#### Cmdliner Test Suites
+- Added `test/test_retrieve_cli.ml` and `test/test_ingest_cli.ml` to validate help output, required options, and command registration.
+- Extended ingest CLI coverage to ensure each subcommand enforces mandatory flags and help topics evaluate successfully.
+- Test dune file links against the new CLI libraries so parsing logic is exercised directly.
+
+#### Documentation
+- **README.md** and **docs/DEVELOPER.md** updated to describe the shared CLI modules, testing approach, and guidance for adding new subcommands.
+
+### Testing
+
+```bash
+dune fmt
+dune build
+dune runtest
+```
+
+`dune runtest` now verifies the CLI command trees alongside existing database and vector tests.
+
 ## Version 0.0.2 - FEN Position Tracking
 
 ### Overview
@@ -125,7 +159,7 @@ DROP TABLE games CASCADE;
 
 ### Next Steps
 
-Planned for v0.0.3:
+Planned for v0.0.4:
 - Integration with chess engine library (ocamlchess or shakmaty)
 - Full FEN computation with actual board states
 - Castling rights tracking

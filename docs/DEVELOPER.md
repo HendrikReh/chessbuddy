@@ -63,6 +63,43 @@ sequenceDiagram
 The sequence highlights when each module participates, the order of database
 writes, and how pgvector storage happens only after deduplicating FENs.
 
+## CLI Usage
+
+Running `dune exec bin/ingest.exe --` now expects a subcommand. Invoking the binary
+without arguments prints the list of available commands, mirroring
+`chessbuddy help`.
+
+**Command summary:**
+- `chessbuddy ingest --db-uri URI --pgn FILE [--batch-label LABEL] [--dry-run]`
+  - Ingest a PGN file. `--dry-run` parses and reports counts without touching
+    the database.
+- `chessbuddy batches list --db-uri URI [--limit N]`
+  - Show recent ingestion batches along with labels and timestamps.
+- `chessbuddy batches show --db-uri URI --id UUID`
+  - Display batch-level metrics (games, positions, embeddings).
+- `chessbuddy players sync --db-uri URI --from-pgn FILE`
+  - Upsert unique player identities from a PGN without recording games.
+- `chessbuddy health check --db-uri URI`
+  - Verify connectivity and required extensions (`vector`, `pgcrypto`,
+    `uuid-ossp`).
+- `chessbuddy help [COMMAND]`
+  - Describe commands and their parameters; equivalent to running with no args.
+
+**Examples:**
+```bash
+dune exec bin/ingest.exe -- ingest \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --pgn data/games/twic1611.pgn \
+  --batch-label dev-test
+
+dune exec bin/ingest.exe -- ingest --dry-run \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --pgn data/games/twic1611.pgn
+
+dune exec bin/ingest.exe -- batches list \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy
+```
+
 ## PostgreSQL Testing
 
 ### Database Setup

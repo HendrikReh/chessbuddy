@@ -10,6 +10,26 @@ module type PGN_SOURCE = sig
     string -> init:'a -> f:('a -> Types.Game.t -> 'a Lwt.t) -> 'a Lwt.t
 end
 
+module Player_key = struct
+  type t = string * string option
+
+  let normalize name = String.trim name |> String.lowercase_ascii
+
+  let compare (name_a, fide_a) (name_b, fide_b) =
+    match String.compare (normalize name_a) (normalize name_b) with
+    | 0 -> compare fide_a fide_b
+    | diff -> diff
+end
+
+module Player_set = Set.Make (Player_key)
+
+type inspection_summary = {
+  total_games : int;
+  total_moves : int;
+  unique_players : int;
+  players : (string * string option) list;
+}
+
 let compute_checksum path =
   let ic = open_in_bin path in
   Fun.protect
@@ -104,6 +124,59 @@ let ingest_file (module Source : PGN_SOURCE) pool
   let%lwt batch_id = or_fail res in
   Source.fold_games pgn_path ~init:() ~f:(fun () game ->
       process_game pool ~embedder ~batch_id ~game)
+
+let inspect_file (module Source : PGN_SOURCE) ~pgn_path =
+  let open Lwt.Infix in
+  let add_player set name fide_id =
+    match String.trim name with
+    | "" -> set
+    | trimmed -> Player_set.add (trimmed, Option.map String.trim fide_id) set
+  in
+  Source.fold_games pgn_path ~init:(0, 0, Player_set.empty)
+    ~f:(fun (games, moves, players) game ->
+      let players =
+        add_player players game.header.white_player game.header.white_fide_id
+      in
+      let players =
+        add_player players game.header.black_player game.header.black_fide_id
+      in
+      let moves = moves + List.length game.moves in
+      Lwt.return (games + 1, moves, players))
+  >|= fun (total_games, total_moves, players) ->
+  let players_list =
+    Player_set.fold (fun (name, fide) acc -> (name, fide) :: acc) players []
+  in
+  {
+    total_games;
+    total_moves;
+    unique_players = Player_set.cardinal players;
+    players = List.rev players_list;
+  }
+
+let sync_players_from_pgn (module Source : PGN_SOURCE) pool ~pgn_path =
+  let open Lwt.Infix in
+  let add_player set name fide_id =
+    match String.trim name with
+    | "" -> set
+    | trimmed -> Player_set.add (trimmed, Option.map String.trim fide_id) set
+  in
+  Source.fold_games pgn_path ~init:Player_set.empty ~f:(fun players game ->
+      let players =
+        add_player players game.header.white_player game.header.white_fide_id
+      in
+      let players =
+        add_player players game.header.black_player game.header.black_fide_id
+      in
+      Lwt.return players)
+  >>= fun players ->
+  let players = Player_set.elements players in
+  let rec upsert acc = function
+    | [] -> Lwt.return acc
+    | (name, fide_id) :: rest ->
+        let%lwt _id = record_player pool ~name ~fide_id in
+        upsert (acc + 1) rest
+  in
+  upsert 0 players
 
 let with_pool uri f =
   match Db.Pool.create uri with

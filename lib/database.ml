@@ -59,6 +59,33 @@ module Pool = struct
   let use t f = Caqti_lwt_unix.Pool.use f t
 end
 
+(* High-level projections for CLI reporting. *)
+type batch_overview = {
+  batch_id : Uuidm.t;
+  label : string;
+  source_path : string;
+  checksum : string;
+  ingested_at : Ptime.t;
+}
+
+type batch_summary = {
+  overview : batch_overview;
+  games_count : int;
+  position_count : int;
+  unique_fens : int;
+  embedding_count : int;
+}
+
+type health_report = {
+  server_version : string;
+  database_name : string;
+  extensions : (string * bool) list;
+}
+
+let or_fail = function
+  | Ok v -> Lwt.return v
+  | Error err -> Lwt.fail_with (Caqti_error.show err)
+
 let normalize_name name = String.trim name |> String.lowercase_ascii
 
 let find_player_by_fide_query =
@@ -153,6 +180,8 @@ let insert_game_query =
                       opening_name, white_elo, black_elo, result, termination,
                       source_pgn, ingestion_batch)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT (white_id, black_id, game_date, round, pgn_hash) DO UPDATE
+     SET source_pgn = EXCLUDED.source_pgn, ingestion_batch = EXCLUDED.ingestion_batch
    RETURNING game_id
   |sql}
 
@@ -242,3 +271,140 @@ let record_position pool ~game_id ~(move : Types.Move_feature.t) ~fen_id
 let record_embedding pool ~fen_id ~embedding ~version =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
       Db.exec insert_embedding_query (fen_id, embedding, version))
+
+let list_batches_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.int -->* Caqti_type.(t5 uuid string string string ptime))
+  @:- {sql|
+   SELECT batch_id, label, source_path, checksum, ingested_at
+   FROM ingestion_batches
+   ORDER BY ingested_at DESC
+   LIMIT ?
+  |sql}
+
+let fetch_batch_query =
+  let open Caqti_request.Infix in
+  (uuid -->? Caqti_type.(t4 string string string ptime))
+  @:- {sql|
+   SELECT label, source_path, checksum, ingested_at
+   FROM ingestion_batches
+   WHERE batch_id = ?
+  |sql}
+
+let count_games_query =
+  let open Caqti_request.Infix in
+  (uuid -->! Caqti_type.int)
+  @:- {sql|
+   SELECT COUNT(*)::int
+   FROM games
+   WHERE ingestion_batch = ?
+  |sql}
+
+let count_positions_query =
+  let open Caqti_request.Infix in
+  (uuid -->! Caqti_type.int)
+  @:- {sql|
+   SELECT COUNT(*)::int
+   FROM games_positions gp
+   JOIN games g ON gp.game_id = g.game_id
+   WHERE g.ingestion_batch = ?
+  |sql}
+
+let count_unique_fens_query =
+  let open Caqti_request.Infix in
+  (uuid -->! Caqti_type.int)
+  @:- {sql|
+   SELECT COUNT(DISTINCT gp.fen_id)::int
+   FROM games_positions gp
+   JOIN games g ON gp.game_id = g.game_id
+   WHERE g.ingestion_batch = ?
+  |sql}
+
+let count_embeddings_query =
+  let open Caqti_request.Infix in
+  (uuid -->! Caqti_type.int)
+  @:- {sql|
+   SELECT COUNT(DISTINCT fe.fen_id)::int
+   FROM fen_embeddings fe
+   JOIN games_positions gp ON gp.fen_id = fe.fen_id
+   JOIN games g ON gp.game_id = g.game_id
+   WHERE g.ingestion_batch = ?
+  |sql}
+
+let server_info_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->! Caqti_type.(t2 string string))
+  @:- {sql|
+   SELECT current_setting('server_version'), current_database()
+  |sql}
+
+let extension_exists_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.string -->! Caqti_type.bool)
+  @:- {sql|
+   SELECT EXISTS (
+     SELECT 1 FROM pg_extension WHERE extname = ?
+   )
+  |sql}
+
+let list_batches pool ~limit =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let* rows_res = Db.collect_list list_batches_query limit in
+      Lwt.return
+        (Result.map
+           (List.map
+              (fun (batch_id, label, source_path, checksum, ingested_at) ->
+                { batch_id; label; source_path; checksum; ingested_at }))
+           rows_res))
+
+let get_batch_summary pool ~batch_id =
+  let bind_result res f =
+    match res with Ok v -> f v | Error err -> Lwt.return (Error err)
+  in
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt.Infix in
+      Db.find_opt fetch_batch_query batch_id >>= fun overview_res ->
+      bind_result overview_res (function
+        | None -> Lwt.return (Ok None)
+        | Some (label, source_path, checksum, ingested_at) ->
+            let overview =
+              { batch_id; label; source_path; checksum; ingested_at }
+            in
+            Db.find count_games_query batch_id >>= fun games_res ->
+            bind_result games_res (fun games_count ->
+                Db.find count_positions_query batch_id >>= fun positions_res ->
+                bind_result positions_res (fun position_count ->
+                    Db.find count_unique_fens_query batch_id >>= fun fens_res ->
+                    bind_result fens_res (fun unique_fens ->
+                        Db.find count_embeddings_query batch_id
+                        >>= fun embeddings_res ->
+                        bind_result embeddings_res (fun embedding_count ->
+                            Lwt.return
+                              (Ok
+                                 (Some
+                                    {
+                                      overview;
+                                      games_count;
+                                      position_count;
+                                      unique_fens;
+                                      embedding_count;
+                                    }))))))))
+
+let health_check ?(extensions = [ "vector"; "pgcrypto"; "uuid-ossp" ]) pool =
+  let bind_result res f =
+    match res with Ok v -> f v | Error err -> Lwt.return (Error err)
+  in
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt.Infix in
+      Db.find server_info_query () >>= fun info_res ->
+      bind_result info_res (fun (server_version, database_name) ->
+          let rec gather acc = function
+            | [] -> Lwt.return (Ok (List.rev acc))
+            | ext :: rest ->
+                Db.find extension_exists_query ext >>= fun exists_res ->
+                bind_result exists_res (fun exists ->
+                    gather ((ext, exists) :: acc) rest)
+          in
+          gather [] extensions >>= fun extensions_res ->
+          bind_result extensions_res (fun extensions ->
+              Lwt.return (Ok { server_version; database_name; extensions }))))

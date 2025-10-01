@@ -2,105 +2,155 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  UNDICI_NO_GLOBAL: "true"
 
 jobs:
   build:
+    name: Build & Test (${{ matrix.os }} / OCaml ${{ matrix.ocaml }})
     runs-on: ${{ matrix.os }}
-    env:
-      UNDICI_NO_GLOBAL: 'true'
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        ocaml-compiler: [5.1.x, 5.2.x]
-
+        ocaml: [5.1.x, 5.2.x]
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    - name: Set up Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
+      - name: Cache opam switch
+        uses: actions/cache@v4
+        with:
+          path: ~/.opam
+          key: opam-${{ runner.os }}-${{ matrix.ocaml }}-${{ hashFiles('**/*.opam', 'dune-project') }}
+          restore-keys: |
+            opam-${{ runner.os }}-${{ matrix.ocaml }}-
 
-    - name: Set up OCaml
-      uses: ocaml/setup-ocaml@v3
-      with:
-        ocaml-compiler: ${{ matrix.ocaml-compiler }}
-        dune-cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-    - name: Install libpq (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        brew update
-        brew install libpq
-        if [ -d /opt/homebrew/opt/libpq ]; then
-          LIBPQ_PREFIX=/opt/homebrew/opt/libpq
-        else
-          LIBPQ_PREFIX=/usr/local/opt/libpq
-        fi
-        echo "$LIBPQ_PREFIX/bin" >> $GITHUB_PATH
-        echo "PKG_CONFIG_PATH=$LIBPQ_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ matrix.ocaml }}
+          dune-cache: true
 
-    - name: Install dependencies
-      run: opam install . --deps-only --with-test
+      - name: Install libpq (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install libpq
+          if [ -d /opt/homebrew/opt/libpq ]; then
+            LIBPQ_PREFIX=/opt/homebrew/opt/libpq
+          else
+            LIBPQ_PREFIX=/usr/local/opt/libpq
+          fi
+          echo "$LIBPQ_PREFIX/bin" >> "$GITHUB_PATH"
+          echo "PKG_CONFIG_PATH=$LIBPQ_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
 
-    - name: Build
-      run: opam exec -- dune build
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test --yes
 
-    - name: Run tests
-      run: opam exec -- dune runtest
+      - name: Build
+        run: opam exec -- dune build
 
-    - name: Check formatting
-      run: |
-        opam install ocamlformat.0.27.0 --yes
-        opam exec -- dune fmt --display=quiet
-        git diff --exit-code
-      if: matrix.os == 'ubuntu-latest' && matrix.ocaml-compiler == '5.2.x'
+      - name: Run tests
+        run: opam exec -- dune runtest
 
   lint:
+    name: Lint (warnings as errors)
     runs-on: ubuntu-latest
-    env:
-      UNDICI_NO_GLOBAL: 'true'
+    timeout-minutes: 20
+    needs: build
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    - name: Set up Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
+      - name: Cache opam switch
+        uses: actions/cache@v4
+        with:
+          path: ~/.opam
+          key: opam-${{ runner.os }}-lint-${{ hashFiles('**/*.opam', 'dune-project') }}
+          restore-keys: |
+            opam-${{ runner.os }}-lint-
 
-    - name: Set up OCaml
-      if: ${{ !env.ACT }}
-      uses: ocaml/setup-ocaml@v3
-      with:
-        ocaml-compiler: 5.2.x
-      env:
-        UNDICI_NO_GLOBAL: 'true'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-    - name: Set up OCaml (act local testing)
-      if: ${{ env.ACT }}
-      run: |
-        echo "⚠️  Skipping setup-ocaml@v3 (requires Node 20+, act uses Node 18)"
-        echo ""
-        echo "For local testing with act, use a container with OCaml pre-installed:"
-        echo "  docker run -it --rm ocaml/opam:ubuntu-22.04-ocaml-5.2"
-        echo ""
-        echo "Or test directly on GitHub Actions by pushing to a branch."
-        echo ""
-        echo "This step will exit successfully to allow workflow validation."
-        exit 0
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.x
+          dune-cache: true
 
-    - name: Install dependencies
-      if: ${{ !env.ACT }}
-      run: opam install . --deps-only --with-test
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test --yes
 
-    - name: Check for build warnings
-      if: ${{ !env.ACT }}
-      shell: bash
-      env:
-        OCAMLPARAM: _,warn-error=+a
-      run: |
-        set -o pipefail
-        opam exec -- dune build --display=short
+      - name: Build with warnings as errors
+        env:
+          OCAMLPARAM: _,warn-error=+a
+        run: |
+          set -eo pipefail
+          opam exec -- dune build --display=short
+
+  fmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache opam switch
+        uses: actions/cache@v4
+        with:
+          path: ~/.opam
+          key: opam-${{ runner.os }}-fmt-${{ hashFiles('**/*.opam', 'dune-project') }}
+          restore-keys: |
+            opam-${{ runner.os }}-fmt-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.x
+          dune-cache: true
+
+      - name: Install ocamlformat
+        run: opam install ocamlformat.0.27.0 --yes
+
+      - name: Check formatting
+        run: |
+          opam exec -- dune fmt --display=quiet
+          git diff --exit-code

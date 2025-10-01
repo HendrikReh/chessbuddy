@@ -232,12 +232,13 @@ Set `CHESSBUDDY_REQUIRE_DB_TESTS=1` locally when you want the suite to fail fast
 
 ```
 test/
-   dune
-   test_database.ml      # Database module tests
-   test_vector.ml         # Vector operations tests
-   test_integration.ml    # Full pipeline tests
-   fixtures/
-       sample.pgn         # Test PGN data
+├── dune                    # Test build configuration
+├── test_suite.ml           # Test runner with Alcotest-lwt
+├── test_helpers.ml         # Shared fixtures and utilities
+├── test_database.ml        # Database module tests
+├── test_vector.ml          # Vector operations tests
+└── fixtures/               # (planned) Test data
+    └── sample.pgn          # (planned) Sample PGN files
 ```
 
 **Test database strategy:**

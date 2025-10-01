@@ -2,7 +2,15 @@
  (name ingest)
  (public_name chessbuddy-ingest)
  (modules ingest)
- (libraries chessbuddy.core base stdio cmdliner uri lwt lwt.unix)
+ (libraries
+  chessbuddy.ingest_cli
+  chessbuddy.core
+  base
+  stdio
+  cmdliner
+  uri
+  lwt
+  lwt.unix)
  (preprocess
   (pps lwt_ppx ppx_deriving.show ppx_yojson_conv)))
 
@@ -10,6 +18,15 @@
  (name retrieve)
  (public_name chessbuddy-retrieve)
  (modules retrieve)
- (libraries chessbuddy.core base stdio cmdliner uri lwt lwt.unix yojson)
+ (libraries
+  chessbuddy.retrieve_cli
+  chessbuddy.core
+  base
+  stdio
+  cmdliner
+  uri
+  lwt
+  lwt.unix
+  yojson)
  (preprocess
   (pps lwt_ppx ppx_deriving.show ppx_yojson_conv)))

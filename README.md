@@ -92,6 +92,7 @@ Checksums are computed from the PGN file contents, so re-ingesting an updated fi
 
 - All OCaml modules must `open! Base` (or rely on the Base namespace) and only fall back to `Stdlib.<module>` when Base intentionally lacks an equivalent. This keeps the codebase consistent with Jane Street idioms and avoids mixing prelude semantics.
 - Run `dune fmt` before submitting patches, and keep module structure aligned with the library layout in `lib/`.
+- CLI wiring lives in reusable libraries (`lib/retrieve_cli.ml`, `lib/ingest_cli.ml`) that back both the executables and Alcotest suites. When adding subcommands, update the shared module first and extend the tests under `test/` so parsing behaviour stays covered without hitting a live database.
 
 ## Retrieval CLI
 
@@ -137,6 +138,8 @@ EOF
 ### Automated Testing
 
 Set `CHESSBUDDY_REQUIRE_DB_TESTS=1` to force database-backed tests to run; otherwise they quietly skip when PostgreSQL is unavailable (useful in CI). See [docs/DEVELOPER.md](docs/DEVELOPER.md) for more details.
+
+`dune runtest` now exercises CLI argument parsing alongside database scenarios. The ingest and retrieve command trees are validated via `test/test_ingest_cli.ml` and `test/test_retrieve_cli.ml`, so regressions in Cmdliner wiring are caught without needing Postgres.
 
 ---
 

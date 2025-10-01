@@ -113,6 +113,24 @@ dune exec bin/ingest.exe -- batches list \
   --db-uri postgresql://chess:chess@localhost:5433/chessbuddy
 ```
 
+### CLI modules and tests
+
+Both CLIs expose their Cmdliner wiring through dedicated libraries. `lib/ingest_cli.ml`
+compiles to `chessbuddy.ingest_cli`, while `lib/retrieve_cli.ml` exposes
+`chessbuddy.retrieve_cli`. The executables re-export `Ingest_cli.run ()` and
+`Retrieve_cli.run ()`, and the Alcotest suites import the same modules to
+exercise argument parsing without spinning up a database.
+
+When you add or modify subcommands:
+- extend the corresponding `*_cli.ml` module so the executable and tests stay in sync;
+- update `test/test_ingest_cli.ml` or `test/test_retrieve_cli.ml` with new
+  expectations for help text or required flags;
+- keep the helper lists (`command_names ()`) in step with the public CLI surface
+  to catch forgotten registrations.
+
+`dune runtest` will fail fast if the Cmdliner spec drifts, giving feedback before
+running any integration scenarios.
+
 ## PostgreSQL Testing
 
 ### Database Setup

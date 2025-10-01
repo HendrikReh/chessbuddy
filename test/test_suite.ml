@@ -8,4 +8,6 @@ let () =
        [
          ("Database Operations", Test_database.tests);
          ("Vector Operations", Test_vector.tests);
+         ("Retrieve CLI", Test_retrieve_cli.tests);
+         ("Ingest CLI", Test_ingest_cli.tests);
        ])

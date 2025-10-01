@@ -1,6 +1,8 @@
 (library
  (name chessbuddy)
  (public_name chessbuddy.core)
+ (modules
+  (:standard \ Retrieve_cli Ingest_cli))
  (preprocess
   (pps lwt_ppx ppx_deriving.show ppx_yojson_conv))
  (libraries
@@ -17,3 +19,26 @@
   ptime
   digestif
   uuidm))
+
+(library
+ (name chessbuddy_retrieve_cli)
+ (public_name chessbuddy.retrieve_cli)
+ (wrapped false)
+ (modules retrieve_cli)
+ (libraries
+  base
+  chessbuddy.core
+  cmdliner
+  uri
+  lwt
+  lwt.unix
+  yojson
+  ptime
+  uuidm))
+
+(library
+ (name chessbuddy_ingest_cli)
+ (public_name chessbuddy.ingest_cli)
+ (wrapped false)
+ (modules ingest_cli)
+ (libraries base chessbuddy.core cmdliner uri lwt lwt.unix ptime uuidm))

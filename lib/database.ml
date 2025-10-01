@@ -129,7 +129,6 @@ let or_fail = function
   | Error err -> Lwt.fail_with (Caqti_error.show err)
 
 let normalize_name name = String.strip name |> String.lowercase
-
 let char_of_string s = if String.length s = 0 then 'w' else String.get s 0
 
 let find_player_by_fide_query =
@@ -318,14 +317,15 @@ let record_embedding pool ~fen_id ~embedding ~version =
 
 let find_fen_id_by_text_query =
   let open Caqti_request.Infix in
-  (Caqti_type.string -->? uuid)
-  @:- "SELECT fen_id FROM fens WHERE fen_text = ?"
+  (Caqti_type.string -->? uuid) @:- "SELECT fen_id FROM fens WHERE fen_text = ?"
 
 let fetch_fen_query =
   let open Caqti_request.Infix in
   (uuid -->? Caqti_type.(t5 string string string (option string) string))
-  @:-
-  "SELECT fen_text, side_to_move, castling_rights, en_passant_file, material_signature\n   FROM fens\n   WHERE fen_id = ?"
+  @:- "SELECT fen_text, side_to_move, castling_rights, en_passant_file, \
+       material_signature\n\
+      \   FROM fens\n\
+      \   WHERE fen_id = ?"
 
 let fen_usage_query =
   let open Caqti_request.Infix in
@@ -335,14 +335,14 @@ let fen_usage_query =
 let get_fen_embedding_query =
   let open Caqti_request.Infix in
   (uuid -->? Caqti_type.(t2 string string))
-  @:-
-  "SELECT embedding::text, embedding_version\n   FROM fen_embeddings\n   WHERE fen_id = ?"
+  @:- "SELECT embedding::text, embedding_version\n\
+      \   FROM fen_embeddings\n\
+      \   WHERE fen_id = ?"
 
 let similar_fens_query =
   let open Caqti_request.Infix in
   (Caqti_type.(t2 uuid int) -->* Caqti_type.(t5 uuid string string float int))
-  @:-
-  {sql|
+  @:- {sql|
    WITH target AS (
      SELECT embedding FROM fen_embeddings WHERE fen_id = ?
    ), usage AS (
@@ -366,7 +366,9 @@ let similar_fens_query =
 let game_metadata_query =
   let open Caqti_request.Infix in
   let open Caqti_type in
-  let players_type = t2 (t2 string (option string)) (t2 string (option string)) in
+  let players_type =
+    t2 (t2 string (option string)) (t2 string (option string))
+  in
   let details_primary =
     t4 (option string) (option string) (option string) (option date)
   in
@@ -375,8 +377,7 @@ let game_metadata_query =
   let details_type = t3 details_primary details_secondary details_tail in
   let ingest_type = t3 (option uuid) (option string) ptime in
   (uuid -->? t3 players_type details_type ingest_type)
-  @:-
-  {sql|
+  @:- {sql|
    SELECT
      w.full_name,
      w.fide_id,
@@ -415,10 +416,9 @@ let game_move_count_query =
 let player_search_query =
   let open Caqti_request.Infix in
   (Caqti_type.(t2 string int)
-  -->*
-  Caqti_type.(t6 uuid string (option string) int (option date) (option int)))
-  @:-
-  {sql|
+  -->* Caqti_type.(
+         t6 uuid string (option string) int (option date) (option int)))
+  @:- {sql|
    WITH appearances AS (
      SELECT white_id AS player_id, game_date FROM games
      UNION ALL
@@ -447,10 +447,8 @@ let player_search_query =
 let batches_by_label_query =
   let open Caqti_request.Infix in
   (Caqti_type.(t2 string int)
-  -->*
-  Caqti_type.(t5 uuid string string string ptime))
-  @:-
-  {sql|
+  -->* Caqti_type.(t5 uuid string string string ptime))
+  @:- {sql|
    SELECT batch_id, label, source_path, checksum, ingested_at
    FROM ingestion_batches
    WHERE lower(label) LIKE lower('%' || ? || '%')
@@ -464,11 +462,17 @@ let get_fen_details pool ~fen_id =
       Db.find_opt fetch_fen_query fen_id >>= function
       | Error err -> Lwt.return (Error err)
       | Ok None -> Lwt.return (Ok None)
-      | Ok (Some (fen_text, side_to_move_str, castling, en_passant, material_signature)) ->
+      | Ok
+          (Some
+             ( fen_text,
+               side_to_move_str,
+               castling,
+               en_passant,
+               material_signature )) -> (
           let side_to_move = char_of_string side_to_move_str in
           Db.find fen_usage_query fen_id >>= function
           | Error err -> Lwt.return (Error err)
-          | Ok usage_count ->
+          | Ok usage_count -> (
               Db.find_opt get_fen_embedding_query fen_id >>= function
               | Error err -> Lwt.return (Error err)
               | Ok embedding_row ->
@@ -490,7 +494,7 @@ let get_fen_details pool ~fen_id =
                       usage_count;
                     }
                   in
-                  Lwt.return (Ok (Some record)))
+                  Lwt.return (Ok (Some record)))))
 
 let get_fen_by_text pool ~fen_text =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
@@ -505,7 +509,8 @@ let find_similar_fens pool ~fen_id ~limit =
       let* rows_res = Db.collect_list similar_fens_query (fen_id, limit) in
       Lwt.return
         (Result.map rows_res ~f:(fun rows ->
-             List.map rows ~f:(fun (fen_id, fen_text, version, distance, usage_count) ->
+             List.map rows
+               ~f:(fun (fen_id, fen_text, version, distance, usage_count) ->
                  {
                    fen_id;
                    fen_text;
@@ -520,18 +525,23 @@ let get_game_detail pool ~game_id =
       Db.find_opt game_metadata_query game_id >>= function
       | Error err -> Lwt.return (Error err)
       | Ok None -> Lwt.return (Ok None)
-      | Ok (Some (((white_name, white_fide), (black_name, black_fide)),
-                  ((event, site, round, game_date), (eco, opening, result),
-                   (termination, white_elo, black_elo)),
-                  (batch_id_opt, batch_label, ingested_at))) ->
+      | Ok
+          (Some
+             ( ((white_name, white_fide), (black_name, black_fide)),
+               ( (event, site, round, game_date),
+                 (eco, opening, result),
+                 (termination, white_elo, black_elo) ),
+               (batch_id_opt, batch_label, ingested_at) )) -> (
           let game_date_ptime =
             Option.bind game_date ~f:(fun date_tuple ->
-                match Ptime.of_date date_tuple with Some t -> Some t | None -> None)
+                match Ptime.of_date date_tuple with
+                | Some t -> Some t
+                | None -> None)
           in
           Db.find_opt game_source_query game_id >>= function
           | Error err -> Lwt.return (Error err)
           | Ok None -> Lwt.return (Ok None)
-          | Ok (Some source_pgn) ->
+          | Ok (Some source_pgn) -> (
               Db.find game_move_count_query game_id >>= function
               | Error err -> Lwt.return (Error err)
               | Ok move_count ->
@@ -554,7 +564,9 @@ let get_game_detail pool ~game_id =
                     }
                   in
                   let batch_label =
-                    match batch_id_opt with None -> batch_label | Some _ -> batch_label
+                    match batch_id_opt with
+                    | None -> batch_label
+                    | Some _ -> batch_label
                   in
                   let detail : game_detail =
                     {
@@ -566,7 +578,7 @@ let get_game_detail pool ~game_id =
                       move_count;
                     }
                   in
-                  Lwt.return (Ok (Some detail)))
+                  Lwt.return (Ok (Some detail)))))
 
 let search_players pool ~query ~limit =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
@@ -575,7 +587,15 @@ let search_players pool ~query ~limit =
       | Error err -> Lwt.return (Error err)
       | Ok rows ->
           let overviews =
-            List.map rows ~f:(fun (player_id, full_name, fide_id, total_games, last_game, latest_elo) ->
+            List.map rows
+              ~f:(fun
+                  ( player_id,
+                    full_name,
+                    fide_id,
+                    total_games,
+                    last_game,
+                    latest_elo )
+                ->
                 let last_played =
                   Option.bind last_game ~f:(fun date_tuple ->
                       match Ptime.of_date date_tuple with
@@ -598,7 +618,8 @@ let find_batches_by_label pool ~label ~limit =
       let* rows_res = Db.collect_list batches_by_label_query (label, limit) in
       Lwt.return
         (Result.map rows_res ~f:(fun rows ->
-             List.map rows ~f:(fun (batch_id, label, source_path, checksum, ingested_at) ->
+             List.map rows
+               ~f:(fun (batch_id, label, source_path, checksum, ingested_at) ->
                  { batch_id; label; source_path; checksum; ingested_at }))))
 
 let list_batches_query =

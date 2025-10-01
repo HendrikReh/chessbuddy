@@ -2,6 +2,9 @@
  (name test_suite)
  (libraries
   chessbuddy.core
+  chessbuddy.retrieve_cli
+  chessbuddy.ingest_cli
+  cmdliner
   alcotest
   alcotest-lwt
   lwt

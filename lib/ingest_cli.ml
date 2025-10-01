@@ -102,7 +102,7 @@ let help_term =
   let term = Term.(ret (const show_catalog $ topic)) in
   Cmd.v (Cmd.info "help" ~doc) term
 
-let ingest_action uri pgn_path batch_label dry_run =
+let ingest_action uri pgn_path batch_label dry_run search_index search_model =
   let open Lwt.Infix in
   let action () =
     if dry_run then (
@@ -124,12 +124,27 @@ let ingest_action uri pgn_path batch_label dry_run =
       if summary.unique_players > List.length preview then Fmt.printf "  ...@.";
       Fmt.printf "Use without --dry-run to persist results.@.")
     else
+      let search_embedder =
+        if not search_index then None
+        else
+          match Search_embedder.Openai.make ~model:search_model () with
+          | Ok embedder -> Some embedder
+          | Error msg -> failwith msg
+      in
       Ingestion_pipeline.with_pool uri (fun pool ->
-          Ingestion_pipeline.ingest_file
-            (module Pgn_source.Default)
-            pool
-            ~embedder:(module Embedder.Constant)
-            ~pgn_path ~batch_label)
+          match search_embedder with
+          | None ->
+              Ingestion_pipeline.ingest_file
+                (module Pgn_source.Default)
+                pool
+                ~embedder:(module Embedder.Constant)
+                ~pgn_path ~batch_label ~search_embedder:None ()
+          | Some embedder ->
+              Ingestion_pipeline.ingest_file
+                (module Pgn_source.Default)
+                pool
+                ~embedder:(module Embedder.Constant)
+                ~pgn_path ~batch_label ~search_embedder:(Some embedder) ())
       >|= fun () -> Fmt.printf "Ingestion completed for label %s.@." batch_label
   in
   run_lwt action
@@ -159,8 +174,23 @@ let ingest_cmd =
       & info [ "batch-label" ] ~doc:batch_doc ~docv:"LABEL")
   in
   let dry_run = Arg.(value & flag & info [ "dry-run" ] ~doc:dry_doc) in
+  let search_index_doc =
+    "Generate GPT-5 embeddings for natural-language search indexing"
+  in
+  let search_model_doc = "OpenAI embedding model identifier" in
+  let search_index =
+    Arg.(value & flag & info [ "enable-search-index" ] ~doc:search_index_doc)
+  in
+  let search_model =
+    Arg.(
+      value & opt string "gpt-5"
+      & info [ "search-model" ] ~doc:search_model_doc ~docv:"MODEL")
+  in
   let term =
-    Term.(ret (const ingest_action $ db_uri $ pgn $ batch $ dry_run))
+    Term.(
+      ret
+        (const ingest_action $ db_uri $ pgn $ batch $ dry_run $ search_index
+       $ search_model))
   in
   Cmd.v info term
 

@@ -395,9 +395,9 @@ Add to `.github/workflows/ci.yml`:
   run: dune runtest
 ```
 
-## Current Test Status (v0.0.2)
+## Current Test Status (v0.0.4)
 
-### Test Suite: ✅ 11 Tests Passing
+### Test Suite: ✅ 34 Tests Passing
 
 **Database Operations (6 tests):**
 - ✅ Player upsert with FIDE ID
@@ -414,16 +414,45 @@ Add to `.github/workflows/ci.yml`:
 - ✅ Cosine similarity search (<=>)
 - ✅ L2 distance calculation (<->)
 
+**Search Service (2 tests):**
+- ✅ Entity filter validation and normalization
+- ✅ Natural language ranking with stub embeddings
+
+**Retrieve CLI (9 tests):**
+- ✅ Root help text
+- ✅ Search command argument validation
+- ✅ Similar command requirements
+- ✅ Game metadata fetch requirements
+- ✅ Games pagination help
+- ✅ Games command db-uri requirement
+- ✅ Command registry stays in sync
+
+**Ingest CLI (11 tests):**
+- ✅ Help flows
+- ✅ Batch management validation
+- ✅ Player sync argument requirements
+- ✅ Health check command wiring
+
 **Run tests:**
 
 ```bash
 docker-compose up -d
+psql "postgresql://chess:chess@localhost:5433/chessbuddy" -f sql/schema.sql
 dune runtest
+```
+
+**Focus on natural language search only:**
+
+```bash
+CHESSBUDDY_REQUIRE_DB_TESTS=1 dune runtest --only-test "Search Service"
 ```
 
 **Test files:**
 - `test/test_database.ml` - Database module tests with Alcotest
 - `test/test_vector.ml` - Vector search and embedding tests
+- `test/test_search_service.ml` - Natural language search coverage with stub embedder
+- `test/test_retrieve_cli.ml` - Retrieve CLI argument validations
+- `test/test_ingest_cli.ml` - Ingest CLI argument validations
 - `test/test_suite.ml` - Test runner with Alcotest-lwt
 - `test/test_helpers.ml` - Shared fixtures and utilities
 

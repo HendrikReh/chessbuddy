@@ -141,13 +141,23 @@ Set `CHESSBUDDY_REQUIRE_DB_TESTS=1` to force database-backed tests to run; other
 
 `dune runtest` now exercises CLI argument parsing alongside database scenarios. The ingest and retrieve command trees are validated via `test/test_ingest_cli.ml` and `test/test_retrieve_cli.ml`, so regressions in Cmdliner wiring are caught without needing Postgres.
 
+**Natural language search tests** live in `test/test_search_service.ml`. They rely on the same PostgreSQL setup and schema as the other integration suites, but use a stub embedder so no network calls are issued. To focus on these cases:
+
+```bash
+docker-compose up -d
+psql "postgresql://chess:chess@localhost:5433/chessbuddy" -f sql/schema.sql
+CHESSBUDDY_REQUIRE_DB_TESTS=1 dune runtest --only-test "Search Service"
+```
+
+Dropping the `--only-test` flag runs the full battery, including the new search coverage.
+
 ---
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-0.0.4-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/Stage-Experimental-orange.svg" alt="Experimental">
   <img src="https://img.shields.io/badge/Made%20with-OCaml-orange.svg" alt="Made with OCaml">
-  <img src="https://img.shields.io/badge/Tests-11%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-34%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/github/last-commit/HendrikReh/chessbuddy" alt="Last Commit">
   <img src="https://img.shields.io/github/issues/HendrikReh/chessbuddy" alt="Issues">
   <img src="https://img.shields.io/github/stars/HendrikReh/chessbuddy?style=social" alt="Stars">

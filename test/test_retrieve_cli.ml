@@ -27,6 +27,15 @@ let test_root_help () =
   Alcotest_lwt.test_case "--help at root" `Quick (fun _switch () ->
       expect_help "root help" [| "retrieve"; "--help" |])
 
+let test_search_help () =
+  Alcotest_lwt.test_case "search --help" `Quick (fun _switch () ->
+      expect_help "search help" [| "retrieve"; "search"; "--help" |])
+
+let test_search_requires_query () =
+  Alcotest_lwt.test_case "search requires --query" `Quick (fun _switch () ->
+      expect_parse_error "search missing query"
+        [| "retrieve"; "search"; "--db-uri"; "postgresql://example" |])
+
 let test_similar_help () =
   Alcotest_lwt.test_case "similar --help" `Quick (fun _switch () ->
       expect_help "similar help" [| "retrieve"; "similar"; "--help" |])
@@ -52,7 +61,16 @@ let test_games_require_db_uri () =
 let test_registered_commands () =
   Alcotest_lwt.test_case "command list" `Quick (fun _switch () ->
       let expected =
-        [ "similar"; "game"; "games"; "fen"; "player"; "batch"; "export" ]
+        [
+          "search";
+          "similar";
+          "game";
+          "games";
+          "fen";
+          "player";
+          "batch";
+          "export";
+        ]
       in
       let actual = Retrieve_cli.command_names () in
       Alcotest.(check (list string)) "registered commands" expected actual;
@@ -61,6 +79,8 @@ let test_registered_commands () =
 let tests =
   [
     test_root_help ();
+    test_search_help ();
+    test_search_requires_query ();
     test_similar_help ();
     test_similar_requires_fen ();
     test_game_requires_id ();

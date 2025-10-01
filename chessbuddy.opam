@@ -11,6 +11,7 @@ depends: [
   "ocaml" {>= "5.1"}
   "dune" {>= "3.10"}
   "lwt"
+  "lwt_ssl"
   "lwt_ppx"
   "logs"
   "fmt"
@@ -25,6 +26,8 @@ depends: [
   "digestif"
   "ppx_deriving"
   "ppx_yojson_conv"
+  "cohttp-lwt-unix"
+  "tls"
   "uri"
   "uuidm"
   "alcotest" {with-test}

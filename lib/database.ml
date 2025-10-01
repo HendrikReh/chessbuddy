@@ -43,13 +43,26 @@ let string_array =
 (* Custom float array for embeddings - encode as pgvector format *)
 let float_array =
   let encode arr =
-    let str_arr = Array.map arr ~f:Float.to_string in
+    let str_arr = Array.map arr ~f:(fun f -> Float.to_string f) in
     Ok ("[" ^ String.concat ~sep:"," (Array.to_list str_arr) ^ "]")
   in
-  let decode _str =
-    (* Simple passthrough for now *)
-    Ok (Array.of_list [ 0.0 ])
-    (* Placeholder *)
+  let decode str =
+    let parse value =
+      let trimmed = String.strip value in
+      if String.is_empty trimmed then None else Some (Float.of_string trimmed)
+    in
+    let trimmed = String.strip str in
+    if String.length trimmed < 2 then Ok [||]
+    else
+      let inner = String.sub trimmed ~pos:1 ~len:(String.length trimmed - 2) in
+      if String.is_empty (String.strip inner) then Ok [||]
+      else
+        let parts = String.split ~on:',' inner in
+        let floats =
+          List.filter_map parts ~f:(fun part ->
+              try parse part with Stdlib.Failure _ -> None)
+        in
+        Ok (Array.of_list floats)
   in
   Caqti_type.(custom ~encode ~decode string)
 
@@ -132,6 +145,14 @@ type player_overview = {
   total_games : int;
   last_played : Ptime.t option;
   latest_standard_elo : int option;
+}
+
+type search_hit = {
+  entity_type : string;
+  entity_id : Uuidm.t;
+  content : string;
+  score : float;
+  model : string;
 }
 
 let or_fail = function
@@ -218,14 +239,14 @@ let ensure_ingestion_batches_table_query =
 let ensure_ingestion_batches_ingested_at_column_query =
   let open Caqti_request.Infix in
   (Caqti_type.unit -->. Caqti_type.unit)
-  @:-
-  "ALTER TABLE ingestion_batches ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+  @:- "ALTER TABLE ingestion_batches ADD COLUMN IF NOT EXISTS ingested_at \
+       TIMESTAMPTZ NOT NULL DEFAULT now()"
 
 let ensure_ingestion_batches_checksum_index_query =
   let open Caqti_request.Infix in
   (Caqti_type.unit -->. Caqti_type.unit)
-  @:-
-  "CREATE UNIQUE INDEX IF NOT EXISTS ingestion_batches_checksum_idx ON ingestion_batches (checksum)"
+  @:- "CREATE UNIQUE INDEX IF NOT EXISTS ingestion_batches_checksum_idx ON \
+       ingestion_batches (checksum)"
 
 let ensure_ingestion_batches pool =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
@@ -233,6 +254,67 @@ let ensure_ingestion_batches pool =
       let* () = Db.exec ensure_ingestion_batches_table_query () in
       let* () = Db.exec ensure_ingestion_batches_ingested_at_column_query () in
       let* () = Db.exec ensure_ingestion_batches_checksum_index_query () in
+      Lwt.return_ok ())
+
+let ensure_search_documents_table_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:- {sql|
+   CREATE TABLE IF NOT EXISTS search_documents (
+    document_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(1536) NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (entity_type, entity_id)
+   )
+  |sql}
+
+let ensure_search_documents_entity_index_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:- "CREATE INDEX IF NOT EXISTS idx_search_documents_entity ON \
+       search_documents (entity_type, entity_id)"
+
+let ensure_search_documents_updated_index_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:- "CREATE INDEX IF NOT EXISTS idx_search_documents_updated ON \
+       search_documents (updated_at DESC)"
+
+let ensure_search_documents_ivfflat_index_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:- "CREATE INDEX IF NOT EXISTS idx_search_documents_embedding ON \
+       search_documents USING ivfflat (embedding vector_l2_ops) WITH (lists = \
+       500)"
+
+let ensure_search_documents_column_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.unit -->. Caqti_type.unit)
+  @:- "ALTER TABLE search_documents ALTER COLUMN embedding TYPE vector(1536)"
+
+let ensure_search_documents pool =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt_result.Syntax in
+      let* () = Db.exec ensure_search_documents_table_query () in
+      let* () =
+        Lwt.bind (Db.exec ensure_search_documents_column_query ()) (function
+          | Ok () -> Lwt.return_ok ()
+          | Error err ->
+              let message = Caqti_error.show err in
+              if
+                String.is_substring message ~substring:"does not exist"
+                || String.is_substring message ~substring:"already of type"
+              then Lwt.return_ok ()
+              else Lwt.return_error err)
+      in
+      let* () = Db.exec ensure_search_documents_entity_index_query () in
+      let* () = Db.exec ensure_search_documents_updated_index_query () in
+      let* () = Db.exec ensure_search_documents_ivfflat_index_query () in
       Lwt.return_ok ())
 
 let insert_batch_query =
@@ -357,6 +439,55 @@ let record_position pool ~game_id ~(move : Types.Move_feature.t) ~fen_id
 let record_embedding pool ~fen_id ~embedding ~version =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
       Db.exec insert_embedding_query (fen_id, embedding, version))
+
+let upsert_search_document_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t5 string uuid string float_array string) -->. Caqti_type.unit)
+  @:- {sql|
+   INSERT INTO search_documents (entity_type, entity_id, content, embedding, model)
+   VALUES (?, ?, ?, ?, ?)
+   ON CONFLICT (entity_type, entity_id)
+   DO UPDATE
+   SET content = EXCLUDED.content,
+       embedding = EXCLUDED.embedding,
+       model = EXCLUDED.model,
+       updated_at = now()
+  |sql}
+
+let search_documents_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t4 float_array string_array float_array int)
+  -->* Caqti_type.(t5 string uuid string float string))
+  @:- {sql|
+   SELECT entity_type,
+          entity_id,
+          content,
+          1.0 / (1.0 + (embedding <=> ?))::float AS score,
+          model
+   FROM search_documents
+   WHERE entity_type = ANY(?)
+   ORDER BY embedding <=> ?
+   LIMIT ?
+  |sql}
+
+let upsert_search_document pool ~entity_type ~entity_id ~content ~embedding
+    ~model =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.exec upsert_search_document_query
+        (entity_type, entity_id, content, embedding, model))
+
+let search_documents pool ~query_embedding ~entity_types ~limit =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      let open Lwt_result.Syntax in
+      let* rows =
+        Db.collect_list search_documents_query
+          (query_embedding, entity_types, query_embedding, limit)
+      in
+      let hits =
+        List.map rows ~f:(fun (entity_type, entity_id, content, score, model) ->
+            { entity_type; entity_id; content; score; model })
+      in
+      Lwt.return_ok hits)
 
 let find_fen_id_by_text_query =
   let open Caqti_request.Infix in

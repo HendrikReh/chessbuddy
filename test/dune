@@ -1,5 +1,13 @@
 (test
  (name test_suite)
+ (modules
+  test_suite
+  test_helpers
+  test_database
+  test_vector
+  test_search_service
+  test_retrieve_cli
+  test_ingest_cli)
  (libraries
   chessbuddy.core
   chessbuddy.retrieve_cli

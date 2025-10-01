@@ -9,12 +9,15 @@
   base
   lwt
   lwt.unix
+  lwt_ssl
   logs
   logs.fmt
   caqti
   caqti-lwt
   caqti-lwt.unix
   caqti-driver-postgresql
+  cohttp-lwt-unix
+  tls
   yojson
   ptime
   digestif

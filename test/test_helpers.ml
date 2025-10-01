@@ -68,6 +68,9 @@ let cleanup_test_data pool =
   let delete_players =
     (Caqti_type.unit -->. Caqti_type.unit) @:- "DELETE FROM players"
   in
+  let delete_search_documents =
+    (Caqti_type.unit -->. Caqti_type.unit) @:- "DELETE FROM search_documents"
+  in
 
   let%lwt () = exec_query pool delete_games_positions () in
   let%lwt () = exec_query pool delete_game_themes () in
@@ -77,6 +80,8 @@ let cleanup_test_data pool =
   let%lwt () = exec_query pool delete_ingestion_batches () in
   let%lwt () = exec_query pool delete_player_ratings () in
   let%lwt () = exec_query pool delete_players () in
+  let%lwt () = Chessbuddy.Search_indexer.ensure_tables pool in
+  let%lwt () = exec_query pool delete_search_documents () in
   Lwt.return_unit
 
 (* Wrapper for tests that need a clean database *)

@@ -58,8 +58,7 @@ let with_raw_mode f =
     let original = Unix.tcgetattr fd in
     let raw = { original with Unix.c_echo = false; c_icanon = false } in
     let set attrs =
-      try Unix.tcsetattr fd Unix.TCSADRAIN attrs with
-      | Unix.Unix_error _ -> ()
+      try Unix.tcsetattr fd Unix.TCSADRAIN attrs with Unix.Unix_error _ -> ()
     in
     Lwt.finalize
       (fun () ->
@@ -215,13 +214,9 @@ let games_action uri page page_size interactive =
       let* char_opt = Lwt_io.read_char_opt Lwt_io.stdin in
       match char_opt with
       | None -> Lwt.return `Quit
-      | Some ch ->
+      | Some ch -> (
           let lower = Stdlib.Char.lowercase_ascii ch in
-          let to_echo =
-            match lower with
-            | '\n' | '\r' -> None
-            | _ -> Some ch
-          in
+          let to_echo = match lower with '\n' | '\r' -> None | _ -> Some ch in
           let* () =
             match to_echo with
             | None -> Lwt.return_unit
@@ -229,7 +224,7 @@ let games_action uri page page_size interactive =
           in
           let* () = Lwt_io.write_char Lwt_io.stdout '\n' in
           let* () = Lwt_io.flush Lwt_io.stdout in
-          (match lower with
+          match lower with
           | 'n' | '\n' -> Lwt.return `Next
           | 'p' -> Lwt.return `Prev
           | 'q' -> Lwt.return `Quit
@@ -245,7 +240,8 @@ let games_action uri page page_size interactive =
       else if empty_page && current_page = 1 then Lwt.return_unit
       else (
         if empty_page then (
-          Fmt.printf "Reached an empty page. Use [p] to go back or [q] to quit.@.";
+          Fmt.printf
+            "Reached an empty page. Use [p] to go back or [q] to quit.@.";
           Fmt.printf "@?");
         let* command = prompt_navigation () in
         match command with
@@ -260,6 +256,35 @@ let games_action uri page page_size interactive =
     Ingestion_pipeline.with_pool uri (fun pool ->
         let run () = loop pool initial_page in
         if interactive then with_raw_mode run else run ())
+  in
+  run_lwt action
+
+let search_action uri query entities limit model =
+  let action () =
+    let* entity_filters =
+      match Search_service.ensure_entity_filters entities with
+      | Ok filters -> Lwt.return filters
+      | Error msg -> Lwt.fail_with msg
+    in
+    match Search_embedder.Openai.make ~model () with
+    | Error msg -> Lwt.fail_with msg
+    | Ok embedder ->
+        let* hits =
+          Ingestion_pipeline.with_pool uri (fun pool ->
+              Search_service.search pool ~embedder ~query ~entity_filters ~limit)
+        in
+        if List.is_empty hits then Fmt.printf "No matches for %S.@." query
+        else (
+          Fmt.printf "%-10s  %-8s  %-12s  %-36s  %s@." "Type" "Score" "Model"
+            "Entity ID" "Preview";
+          List.iter hits ~f:(fun hit ->
+              let preview = truncate 80 hit.Database.content in
+              let label = String.capitalize hit.Database.entity_type in
+              Fmt.printf "%-10s  %-8.4f  %-12s  %-36s  %s@." label
+                hit.Database.score hit.Database.model
+                (Uuidm.to_string hit.Database.entity_id)
+                preview));
+        Lwt.return_unit
   in
   run_lwt action
 
@@ -446,6 +471,45 @@ let similar_cmd =
   let term = Term.(ret (const similar_action $ db_uri $ fen $ limit)) in
   Cmd.v info term
 
+let search_cmd =
+  let doc = "Search indexed entities with natural language" in
+  let info = Cmd.info "search" ~doc in
+  let db_uri =
+    Arg.(
+      required
+      & opt (some uri_conv) None
+      & info [ "db-uri" ] ~doc:"PostgreSQL connection URI")
+  in
+  let query =
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "query" ] ~doc:"Free-text query" ~docv:"TEXT")
+  in
+  let limit =
+    Arg.(value & opt int 20 & info [ "limit" ] ~doc:"Maximum results" ~docv:"N")
+  in
+  let entity_doc =
+    let options =
+      String.concat ~sep:", " (Search_service.available_entity_names ())
+    in
+    Printf.sprintf "Restrict to an entity type (%s); repeat to combine filters"
+      options
+  in
+  let entities =
+    Arg.(
+      value & opt_all string [] & info [ "entity" ] ~doc:entity_doc ~docv:"TYPE")
+  in
+  let model_doc = "OpenAI embedding model identifier" in
+  let model =
+    Arg.(
+      value & opt string "gpt-5" & info [ "model" ] ~doc:model_doc ~docv:"MODEL")
+  in
+  let term =
+    Term.(ret (const search_action $ db_uri $ query $ entities $ limit $ model))
+  in
+  Cmd.v info term
+
 let game_cmd =
   let doc = "Show metadata and PGN for a stored game" in
   let info = Cmd.info "game" ~doc in
@@ -485,8 +549,7 @@ let games_cmd =
   in
   let interactive =
     Arg.(
-      value
-      & flag
+      value & flag
       & info [ "interactive"; "i" ]
           ~doc:"Interactive paging with next/previous prompts")
   in
@@ -589,7 +652,14 @@ let export_cmd =
 
 let commands =
   [
-    similar_cmd; game_cmd; games_cmd; fen_cmd; player_cmd; batch_cmd; export_cmd;
+    search_cmd;
+    similar_cmd;
+    game_cmd;
+    games_cmd;
+    fen_cmd;
+    player_cmd;
+    batch_cmd;
+    export_cmd;
   ]
 
 let root_command =

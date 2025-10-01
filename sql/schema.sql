@@ -106,3 +106,19 @@ CREATE TABLE IF NOT EXISTS game_themes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_game_themes_queenside ON game_themes (queenside_majority_success);
+
+CREATE TABLE IF NOT EXISTS search_documents (
+    document_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(1536) NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (entity_type, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_documents_entity ON search_documents (entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_search_documents_updated ON search_documents (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_search_documents_embedding ON search_documents USING ivfflat (embedding vector_l2_ops) WITH (lists = 500);

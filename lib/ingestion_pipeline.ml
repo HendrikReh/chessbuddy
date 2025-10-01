@@ -6,6 +6,8 @@ module type EMBEDDER = sig
   val embed : fen:string -> float array Lwt.t
 end
 
+module type TEXT_EMBEDDER = Search_indexer.TEXT_EMBEDDER
+
 module type PGN_SOURCE = sig
   val fold_games :
     string -> init:'a -> f:('a -> Types.Game.t -> 'a Lwt.t) -> 'a Lwt.t
@@ -51,24 +53,40 @@ let or_fail = function
   | Ok v -> Lwt.return v
   | Error err -> Lwt.fail_with (Caqti_error.show err)
 
-let record_player pool ~name ~fide_id =
+let record_player pool ~name ~fide_id ~search_embedder =
   let%lwt res = Db.upsert_player pool ~full_name:name ~fide_id in
-  or_fail res
+  let%lwt player_id = or_fail res in
+  let%lwt () =
+    Search_indexer.index_player pool ~player_id ~name ~fide_id
+      ~embedder:search_embedder
+  in
+  Lwt.return player_id
 
-let record_game pool ~batch_id ~white_id ~black_id ~(game : Types.Game.t) =
+let record_game pool ~batch_id ~white_id ~black_id ~(game : Types.Game.t)
+    ~source_path ~batch_label ~search_embedder =
   let%lwt res =
     Db.record_game pool ~white_id ~black_id ~header:game.header
       ~source_pgn:game.source_pgn ~batch_id
   in
-  or_fail res
+  let%lwt game_id = or_fail res in
+  let%lwt () =
+    Search_indexer.index_game pool ~game_id ~game ~batch_label ~source_path
+      ~embedder:search_embedder
+  in
+  Lwt.return game_id
 
 let ensure_fen pool ~fen_text ~side_to_move ~castling ~en_passant
-    ~material_signature =
+    ~material_signature ~search_embedder =
   let%lwt res =
     Db.upsert_fen pool ~fen_text ~side_to_move ~castling ~en_passant
       ~material_signature
   in
-  or_fail res
+  let%lwt fen_id = or_fail res in
+  let%lwt () =
+    Search_indexer.index_fen pool ~fen_id ~fen_text ~side_to_move ~castling
+      ~en_passant ~material_signature ~embedder:search_embedder
+  in
+  Lwt.return fen_id
 
 let material_signature board =
   (* Placeholder for a richer material signature derived from ocamlchess. *)
@@ -89,13 +107,13 @@ let fen_components fen =
   | _ -> ('w', "-", None)
 
 let process_move pool ~game_id ~(embedder : (module EMBEDDER))
-    ~(move : Types.Move_feature.t) =
+    ~(move : Types.Move_feature.t) ~search_embedder =
   let module Embedder = (val embedder : EMBEDDER) in
   let side_to_move, castling, en_passant = fen_components move.fen_after in
+  let material_signature = material_signature move.fen_after in
   let%lwt fen_id =
     ensure_fen pool ~fen_text:move.Types.Move_feature.fen_after ~side_to_move
-      ~castling ~en_passant
-      ~material_signature:(material_signature move.fen_after)
+      ~castling ~en_passant ~material_signature ~search_embedder
   in
   let%lwt res = Db.record_position pool ~game_id ~move ~fen_id ~side_to_move in
   let%lwt () = or_fail res in
@@ -103,36 +121,52 @@ let process_move pool ~game_id ~(embedder : (module EMBEDDER))
   let%lwt res =
     Db.record_embedding pool ~fen_id ~embedding ~version:Embedder.version
   in
-  or_fail res
+  let%lwt () = or_fail res in
+  Search_indexer.index_embedding pool ~fen_id ~fen_text:move.fen_after
+    ~side_to_move ~castling ~en_passant ~material_signature
+    ~version:Embedder.version ~embedder:search_embedder
 
 let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id
-    ~(game : Types.Game.t) =
+    ~(game : Types.Game.t) ~source_path ~batch_label ~search_embedder =
   let%lwt white_id =
     record_player pool ~name:game.header.white_player
-      ~fide_id:game.header.white_fide_id
+      ~fide_id:game.header.white_fide_id ~search_embedder
   in
   let%lwt black_id =
     record_player pool ~name:game.header.black_player
-      ~fide_id:game.header.black_fide_id
+      ~fide_id:game.header.black_fide_id ~search_embedder
   in
-  let%lwt game_id = record_game pool ~batch_id ~white_id ~black_id ~game in
+  let%lwt game_id =
+    record_game pool ~batch_id ~white_id ~black_id ~game ~source_path
+      ~batch_label ~search_embedder
+  in
   Lwt_list.iter_s
-    (fun move -> process_move pool ~game_id ~embedder ~move)
+    (fun move -> process_move pool ~game_id ~embedder ~move ~search_embedder)
     game.moves
 
 let ingest_file (module Source : PGN_SOURCE) pool
-    ~(embedder : (module EMBEDDER)) ~pgn_path ~batch_label =
+    ~(embedder : (module EMBEDDER)) ~pgn_path ~batch_label ~search_embedder () =
   let%lwt () =
     let%lwt res = Db.ensure_ingestion_batches pool in
     or_fail res
+  in
+  let%lwt () =
+    match search_embedder with
+    | None -> Lwt.return_unit
+    | Some _ -> Search_indexer.ensure_tables pool
   in
   let checksum = compute_checksum pgn_path in
   let%lwt res =
     Db.create_batch pool ~source_path:pgn_path ~label:batch_label ~checksum
   in
   let%lwt batch_id = or_fail res in
+  let%lwt () =
+    Search_indexer.index_batch pool ~batch_id ~label:batch_label
+      ~source_path:pgn_path ~checksum ~embedder:search_embedder
+  in
   Source.fold_games pgn_path ~init:() ~f:(fun () game ->
-      process_game pool ~embedder ~batch_id ~game)
+      process_game pool ~embedder ~batch_id ~game ~source_path:pgn_path
+        ~batch_label ~search_embedder)
 
 let inspect_file (module Source : PGN_SOURCE) ~pgn_path =
   let open Lwt.Infix in
@@ -184,7 +218,7 @@ let sync_players_from_pgn (module Source : PGN_SOURCE) pool ~pgn_path =
   let rec upsert acc = function
     | [] -> Lwt.return acc
     | (name, fide_id) :: rest ->
-        let%lwt _id = record_player pool ~name ~fide_id in
+        let%lwt _id = record_player pool ~name ~fide_id ~search_embedder:None in
         upsert (acc + 1) rest
   in
   upsert 0 players

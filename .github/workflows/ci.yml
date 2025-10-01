@@ -15,10 +15,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         ocaml-compiler: [5.1.x, 5.2.x]
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Node
       uses: actions/setup-node@v4
       with:
@@ -45,13 +45,13 @@ jobs:
 
     - name: Install dependencies
       run: opam install . --deps-only --with-test
-    
+
     - name: Build
       run: opam exec -- dune build
-    
+
     - name: Run tests
       run: opam exec -- dune runtest
-    
+
     - name: Check formatting
       run: |
         opam install ocamlformat.0.27.0 --yes

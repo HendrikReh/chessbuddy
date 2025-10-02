@@ -98,6 +98,8 @@ The retrieval CLI mirrors this structure via `chessbuddy-retrieve`:
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize recent batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – JSON export for downstream tools.
 
+**Embedding configuration:** Set `OPENAI_API_KEY` (or provide `--api-key` when wiring a custom provider) before enabling natural-language search via `--enable-search-index`; the ingest CLI will fail fast if the key is missing.
+
 **Examples:**
 ```bash
 dune exec bin/ingest.exe -- ingest \
@@ -175,7 +177,7 @@ The schema (`sql/schema.sql`) includes:
 - Generated columns for case-insensitive name matching and PGN hash (pgcrypto extension)
 - 18 indexes for query optimization including GIN indexes for arrays
 - Materialized view for latest player ratings
-- pgvector extension for similarity search with HNSW indexes
+- pgvector extension for similarity search with IVFFLAT indexes (see `sql/schema.sql`)
 
 ### Ingestion Pipeline Notes
 

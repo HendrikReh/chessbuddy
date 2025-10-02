@@ -1,24 +1,50 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The core OCaml library lives in `lib/`, with small, focused modules for planning (`planner.ml`), execution (`executor.ml`), tooling (`tools.ml`), the OpenAI client, and shared state in `memory.ml`. Keep new functionality modular and remember to register each module inside `lib/dune`. The `bin/` directory houses the Cmdliner entry point (`main.ml`) that wires the agent together and loads environment configuration. Tests belong in `test/`, ideally mirroring library modules (for example, `test_planner.ml`). Dune build outputs under `_build/` and opam switches under `_opam/` are local artifacts and must stay untracked.
+Core OCaml modules live under `lib/` and are kept small and purpose driven:
+- `database.ml` – Caqti-based persistence helpers for PostgreSQL/pgvector
+- `ingestion_pipeline.ml` – Orchestrates PGN ingestion, player upserts, and embedding writes
+- `pgn_source.ml` – Parses PGN headers and SAN moves into structured records
+- `fen_generator.ml` / `.mli` – Placeholder FEN generation utilities
+- `embedder.ml`, `search_embedder.ml`, `openai_client.ml` – Embedding providers for positions and search documents
+- `search_indexer.ml`, `search_service.ml`, `search_indexer.ml` – Text indexing and query helpers
+- `types.ml` – Shared record types
+
+CLI entry points live in `bin/`:
+- `ingest.ml` wraps `lib/ingest_cli.ml`
+- `retrieve.ml` wraps `lib/retrieve_cli.ml`
+
+Database schema files live in `sql/`, with PGN samples under `data/`. Tests in `test/` mirror the library modules (for example, `test_database.ml`, `test_vector.ml`). Update `lib/dune` and `test/dune` whenever new modules are added.
 
 ## Build, Test, and Development Commands
-- `opam install . --deps-only` — sync required packages into the current opam switch.
-- `dune build` — compile the library and CLI; append `@install` to verify install targets.
-- `dune exec bin/agents.exe -- --goal "Plan the data ingest"` — run the agent locally after loading `.env`.
-- `dune runtest` — execute the full test suite; add `--watch` for continuous feedback while iterating.
-- `dune exec bin/retrieve.exe -- --help` — discover read-side commands for similarity lookup, player search, batch summaries, and JSON exports.
-- `mkdir -p data/db && docker-compose up -d` — start PostgreSQL with data persisted in `data/db/` outside the container.
+- `opam switch create . 5.1.1` (first setup) then `opam install . --deps-only` – prepare the toolchain
+- `dune build` – compile everything; add `@install` to verify installability
+- `dune exec bin/ingest.exe -- --help` – inspect ingestion subcommands
+- `dune exec bin/retrieve.exe -- --help` – inspect retrieval subcommands
+- `dune exec bin/ingest.exe -- --db-uri postgresql://chess:chess@localhost:5433/chessbuddy --pgn data/games/twic1611.pgn --batch-label dev-test` – run a full ingestion
+- `dune runtest` – execute Alcotest suites; set `CHESSBUDDY_REQUIRE_DB_TESTS=1` to fail when PostgreSQL is unavailable
+- `mkdir -p data/db && docker-compose up -d` followed by `psql postgresql://chess:chess@localhost:5433/chessbuddy -f sql/schema.sql` – bootstrap PostgreSQL with pgvector
 
 ## Coding Style & Naming Conventions
-Follow the established two-space indentation and keep lines under roughly 90 characters. Modules use `CamelCase`, while values, functions, and fields use `snake_case`. Every OCaml implementation must `open! Base` (or use Base-prefixed modules) at the top and prefer Base helpers over the legacy stdlib; reach for `Stdlib.<module>` only when Base intentionally omits an equivalent utility (e.g., filenames). Favor descriptive record labels instead of tuples and make pattern matches exhaustive. Run `ocamlformat` (>=0.27) before committing—`dune fmt` will enforce formatting once the repo carries a `.ocamlformat` file. Handle `Lwt_result` branches explicitly to surface errors cleanly.
+- Use two-space indentation and keep lines ≲90 characters
+- Modules use `CamelCase`; values, functions, and record fields use `snake_case`
+- Every implementation module must `open! Base`; reach for `Stdlib.<module>` only when Base does not provide an equivalent
+- Prefer descriptive record fields and exhaustive pattern matches
+- Run `dune fmt` (ocamlformat ≥0.27) before committing changes
+- Handle `Lwt_result` branches explicitly to surface database errors
 
 ## Testing Guidelines
-Add unit or integration coverage under `test/`, using deterministic inputs and stubbed OpenAI clients to avoid real network calls. Name scenarios `test_<behavior>` and expose them through the module referenced by `test/dune`. Focus on planner loop termination, executor/tool interactions, and error propagation. When adding new features, include tests that fail without the change and pass afterward.
+- The test suite uses Alcotest_lwt; start PostgreSQL via Docker before running `dune runtest`
+- Reuse `Test_helpers.with_clean_db` to reset schema with `sql/schema.sql`
+- Mirror new library behaviour with `test_<behavior>` helpers registered in `test/test_suite.ml`
+- Focus coverage on player upserts, batch dedupe, FEN handling, search indexing, and embedding persistence; add fixtures under `test/fixtures/` when needed
 
 ## Commit & Pull Request Guidelines
-Write imperative, component-scoped commit subjects (e.g., `planner: cap cycle count`). Use bodies to capture context, API notes, or follow-up tasks, and reference issues with `Fixes #123` when closing tickets. Pull requests should summarize intent, call out design notes, document test coverage (`dune build`, `dune runtest`, manual runs), and include CLI screenshots or logs if behavior changes.
+- Use imperative, component-scoped commit subjects (e.g., `database: tighten batch dedupe`)
+- Include context, follow-up notes, and `Fixes #123` references in commit bodies when closing issues
+- Pull requests should summarise scope, list verification steps (`dune build`, `dune runtest`, manual ingestion commands), and note schema or data impacts
 
 ## Security & Configuration Tips
-Store secrets only in `.env` (e.g., `OPENAI_API_KEY`) and never commit the file. Document any new configuration knobs in your PR. When introducing tools that depend on external services, provide a mock implementation and gate live calls behind configuration so the default test path remains offline.
+- Development credentials are defined in `docker-compose.yml` (`chess:chess@localhost:5433`); override them via environment variables in production
+- Keep secrets (e.g., `OPENAI_API_KEY` for the search indexer) out of version control and document new configuration toggles
+- Provide mock or stub implementations for external services so CI can run without network access

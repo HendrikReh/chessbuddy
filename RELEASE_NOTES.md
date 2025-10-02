@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.4 - Documentation Alignment
+
+### Overview
+- Align README badges and instructions with release 0.0.4
+- Refresh repository guidelines to match current module layout and workflows
+- Clarify embedding configuration requirements (`OPENAI_API_KEY`) when enabling natural-language search
+- Update developer guide to note IVFFLAT indexes and remove stale shields
+
+### Testing
+- `dune build`
+- `dune runtest`
+
 ## Version 0.0.3 - Shared CLI Libraries
 
 ### Overview

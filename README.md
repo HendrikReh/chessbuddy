@@ -1,7 +1,7 @@
 # ChessBuddy
 
 [![OCaml](https://img.shields.io/badge/OCaml-%3E%3D%205.1-orange.svg)](https://ocaml.org)
-[![Version](https://img.shields.io/badge/Version-0.0.2-blue.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/Version-0.0.4-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/Status-Proof%20of%20Concept-yellow.svg)](https://github.com/HendrikReh/chessbuddy)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/HendrikReh/chessbuddy/ci.yml?branch=main)](https://github.com/HendrikReh/chessbuddy/actions)
 [![License](https://img.shields.io/github/license/HendrikReh/chessbuddy)](LICENSE)
@@ -60,12 +60,14 @@ Benchmarked on [TWIC 1611](https://theweekinchess.com/twic) (4.2MB, 4,875 games)
 
 3. Run ingestion:
 
-   ```bash
+```bash
    dune exec bin/ingest.exe -- \
      --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
      --pgn path/to/games.pgn \
      --batch-label "mega-2024"
-   ```
+```
+
+Set `OPENAI_API_KEY` before using `--enable-search-index`; the ingest CLI will abort early if the key is missing.
 
 The executable streams PGN games, generates placeholder FENs for each position, deduplicates positions, produces embeddings (via a pluggable provider), and persists metadata ready for hybrid SQL + vector search queries.
 
@@ -105,7 +107,7 @@ Use the `chessbuddy-retrieve` executable for read-side workflows:
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
 
-**Note**: Current version (0.0.2) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
+**Note**: Current version (0.0.4) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
 
 ## Testing
 
@@ -153,12 +155,3 @@ Dropping the `--only-test` flag runs the full battery, including the new search 
 
 ---
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Version-0.0.4-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/Stage-Experimental-orange.svg" alt="Experimental">
-  <img src="https://img.shields.io/badge/Made%20with-OCaml-orange.svg" alt="Made with OCaml">
-  <img src="https://img.shields.io/badge/Tests-34%20passing-brightgreen.svg" alt="Tests">
-  <img src="https://img.shields.io/github/last-commit/HendrikReh/chessbuddy" alt="Last Commit">
-  <img src="https://img.shields.io/github/issues/HendrikReh/chessbuddy" alt="Issues">
-  <img src="https://img.shields.io/github/stars/HendrikReh/chessbuddy?style=social" alt="Stars">
-</p>

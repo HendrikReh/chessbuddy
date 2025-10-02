@@ -88,9 +88,26 @@ let ensure_fen pool ~fen_text ~side_to_move ~castling ~en_passant
   in
   Lwt.return fen_id
 
-let material_signature board =
-  (* Placeholder for a richer material signature derived from ocamlchess. *)
-  Digestif.SHA1.(to_hex (digest_string board))
+let material_signature fen =
+  match String.lsplit2 fen ~on:' ' with
+  | None -> "unknown"
+  | Some (board, _) ->
+      let counts = Hashtbl.create (module Char) () in
+      String.iter board ~f:(fun ch ->
+          match ch with
+          | '/' -> ()
+          | '1' .. '8' -> ()
+          | _ ->
+              Hashtbl.update counts ch ~f:(function
+                | None -> Some 1
+                | Some n -> Some (n + 1)));
+      if Hashtbl.length counts = 0 then "empty"
+      else
+        Hashtbl.to_alist counts
+        |> List.sort ~compare:(fun (a, _) (b, _) -> Char.compare a b)
+        |> List.map ~f:(fun (piece, count) ->
+               Char.to_string piece ^ Int.to_string count)
+        |> String.concat ~sep:","
 
 let motifs_for_move (_move : Types.Move_feature.t) = []
 
@@ -117,11 +134,21 @@ let process_move pool ~game_id ~(embedder : (module EMBEDDER))
   in
   let%lwt res = Db.record_position pool ~game_id ~move ~fen_id ~side_to_move in
   let%lwt () = or_fail res in
-  let%lwt embedding = Embedder.embed ~fen:move.fen_after in
-  let%lwt res =
-    Db.record_embedding pool ~fen_id ~embedding ~version:Embedder.version
+  let%lwt existing_version_res =
+    Db.get_fen_embedding_version pool ~fen_id
   in
-  let%lwt () = or_fail res in
+  let%lwt existing_version = or_fail existing_version_res in
+  let%lwt () =
+    match existing_version with
+    | Some version when String.equal version Embedder.version -> Lwt.return_unit
+    | _ ->
+        let%lwt embedding = Embedder.embed ~fen:move.fen_after in
+        let%lwt res =
+          Db.record_embedding pool ~fen_id ~embedding ~version:Embedder.version
+        in
+        let%lwt () = or_fail res in
+        Lwt.return_unit
+  in
   Search_indexer.index_embedding pool ~fen_id ~fen_text:move.fen_after
     ~side_to_move ~castling ~en_passant ~material_signature
     ~version:Embedder.version ~embedder:search_embedder

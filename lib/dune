@@ -21,7 +21,8 @@
   yojson
   ptime
   digestif
-  uuidm))
+  uuidm
+  uutf))
 
 (library
  (name chessbuddy_retrieve_cli)

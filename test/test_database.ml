@@ -172,6 +172,92 @@ let test_record_game () =
           let _game_id = check_ok "Game recording failed" result in
           Lwt.return_unit))
 
+let test_record_position_motifs () =
+  Alcotest_lwt.test_case "record position motifs" `Quick (fun _switch () ->
+      with_clean_db (fun pool ->
+          let%lwt white_id =
+            Chessbuddy.Database.upsert_player pool ~full_name:"White Player"
+              ~fide_id:(Some "200001")
+            >|= check_ok "White player creation failed"
+          in
+          let%lwt black_id =
+            Chessbuddy.Database.upsert_player pool ~full_name:"Black Player"
+              ~fide_id:(Some "200002")
+            >|= check_ok "Black player creation failed"
+          in
+          let%lwt batch_id =
+            Chessbuddy.Database.create_batch pool ~source_path:"/test.pgn"
+              ~label:"motifs" ~checksum:"motifs123"
+            >|= check_ok "Batch creation failed"
+          in
+          let header : Chessbuddy.Types.Game_header.t =
+            {
+              event = Some "Motif Test";
+              site = Some "Testville";
+              game_date = Some (make_date 2024 4 20);
+              round = Some "1";
+              eco = Some "C20";
+              opening = Some "King's Pawn";
+              white_player = "White Player";
+              black_player = "Black Player";
+              white_elo = Some 2400;
+              black_elo = Some 2380;
+              white_fide_id = Some "200001";
+              black_fide_id = Some "200002";
+              result = "1-0";
+              termination = Some "Normal";
+            }
+          in
+          let%lwt game_id =
+            Chessbuddy.Database.record_game pool ~white_id ~black_id ~header
+              ~source_pgn:"1. e4 e5" ~batch_id
+            >|= check_ok "Game recording failed"
+          in
+          let%lwt fen_id =
+            Chessbuddy.Database.upsert_fen pool
+              ~fen_text:"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
+              ~side_to_move:'b' ~castling:"KQkq" ~en_passant:None
+              ~material_signature:"placeholder"
+            >|= check_ok "FEN upsert failed"
+          in
+          let move : Chessbuddy.Types.Move_feature.t =
+            {
+              ply_number = 1;
+              san = "e4";
+              uci = Some "e2e4";
+              fen_before =
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+              fen_after =
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1";
+              side_to_move = 'w';
+              eval_cp = Some 20;
+              is_capture = false;
+              is_check = false;
+              is_mate = false;
+              motifs = [ "fork"; "pin" ];
+              comments_before = [];
+              comments_after = [];
+              variations = [];
+              nags = [];
+            }
+          in
+          let%lwt res =
+            Chessbuddy.Database.record_position pool ~game_id ~move ~fen_id
+              ~side_to_move:'w'
+          in
+          check_ok "record position failed" res;
+          let%lwt motifs_res =
+            Chessbuddy.Database.get_position_motifs pool ~game_id ~ply_number:1
+          in
+          let motifs_opt = check_ok "fetch motifs failed" motifs_res in
+          (match motifs_opt with
+          | None -> Alcotest.fail "Expected stored motifs"
+          | Some motifs ->
+              Alcotest.(check (list string))
+                "Motifs preserved" [ "fork"; "pin" ]
+                (Array.to_list motifs));
+          Lwt.return_unit))
+
 (* Collect all database tests *)
 let tests =
   [
@@ -181,4 +267,5 @@ let tests =
     test_create_batch ();
     test_upsert_fen ();
     test_record_game ();
+    test_record_position_motifs ();
   ]

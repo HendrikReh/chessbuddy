@@ -83,16 +83,20 @@ let build_header headers =
   }
 
 let sanitize_utf8 str =
-  (* Keep only printable ASCII characters to avoid database encoding errors *)
   let buf = Stdlib.Buffer.create (String.length str) in
-  String.iter str ~f:(fun c ->
-      let code = Char.to_int c in
-      if code >= 32 && code < 127 then Stdlib.Buffer.add_char buf c
-      else if code = 10 || code = 13 || code = 9 then
-        (* Keep newlines and tabs *)
-        Stdlib.Buffer.add_char buf c
-      (* Skip non-ASCII bytes entirely to avoid invalid UTF-8 sequences *));
-  Stdlib.Buffer.contents buf
+  let decoder = Uutf.decoder ~encoding:`UTF_8 (`String str) in
+  let rec loop () =
+    match Uutf.decode decoder with
+    | `Uchar uchar ->
+        let code = Uchar.to_int uchar in
+        if code >= 32 || code = 9 || code = 10 || code = 13 then
+          Uutf.Buffer.add_utf_8 buf uchar;
+        loop ()
+    | `Malformed _ -> loop ()
+    | `Await -> loop ()
+    | `End -> Stdlib.Buffer.contents buf
+  in
+  loop ()
 
 let parse_moves lines =
   let text = String.concat ~sep:"\n" lines in

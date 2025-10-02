@@ -25,44 +25,103 @@ let date =
 
 (* Custom array type for string arrays (PostgreSQL text[]) *)
 let string_array =
+  let escape_element element =
+    let buf = Stdlib.Buffer.create (String.length element) in
+    String.iter element ~f:(fun ch ->
+        (match ch with '"' | '\\' -> Stdlib.Buffer.add_char buf '\\' | _ -> ());
+        Stdlib.Buffer.add_char buf ch);
+    Stdlib.Buffer.contents buf
+  in
   let encode arr =
-    (* Encode as PostgreSQL array: {elem1,elem2,...} *)
-    let escaped =
-      Array.map arr ~f:(fun s -> "\"" ^ Stdlib.String.escaped s ^ "\"")
+    let elements =
+      arr
+      |> Array.to_list
+      |> List.map ~f:(fun element -> "\"" ^ escape_element element ^ "\"")
     in
-    Ok ("{" ^ String.concat ~sep:"," (Array.to_list escaped) ^ "}")
+    Ok ("{" ^ String.concat ~sep:"," elements ^ "}")
   in
   let decode str =
-    (* Simple decode - just pass through PostgreSQL array string *)
-    (* For full decode, we'd need to parse PostgreSQL array syntax *)
-    Ok (Array.of_list [ str ])
-    (* Placeholder *)
+    let len = String.length str in
+    if len < 2 || not (Char.equal (String.get str 0) '{')
+       || not (Char.equal (String.get str (len - 1)) '}')
+    then Ok (Array.of_list [ str ])
+    else
+      let content = String.sub str ~pos:1 ~len:(len - 2) in
+      let buf = Stdlib.Buffer.create 32 in
+      let add_current value_started acc =
+        let value = Stdlib.Buffer.contents buf in
+        Stdlib.Buffer.clear buf;
+        if not value_started && String.is_empty value then acc
+        else value :: acc
+      in
+      let rec loop i in_quotes escaped value_started acc =
+        if i >= String.length content then
+          let acc =
+            if in_quotes then acc
+            else if value_started || Stdlib.Buffer.length buf > 0 then
+              add_current value_started acc
+            else acc
+          in
+          Ok (Array.of_list (List.rev acc))
+        else
+          let ch = String.get content i in
+          if escaped then (
+            Stdlib.Buffer.add_char buf ch;
+            loop (i + 1) in_quotes false true acc)
+          else if in_quotes then
+            match ch with
+            | '"' -> loop (i + 1) false false true acc
+            | '\\' -> loop (i + 1) true true value_started acc
+            | _ ->
+                Stdlib.Buffer.add_char buf ch;
+                loop (i + 1) true false true acc
+          else
+            match ch with
+            | '"' -> loop (i + 1) true false true acc
+            | ',' ->
+                let acc = add_current value_started acc in
+                loop (i + 1) false false false acc
+            | _ ->
+                Stdlib.Buffer.add_char buf ch;
+                loop (i + 1) false false true acc
+      in
+      loop 0 false false false []
   in
   Caqti_type.(custom ~encode ~decode string)
 
 (* Custom float array for embeddings - encode as pgvector format *)
 let float_array =
   let encode arr =
-    let str_arr = Array.map arr ~f:(fun f -> Float.to_string f) in
+    let str_arr = Array.map arr ~f:Float.to_string in
     Ok ("[" ^ String.concat ~sep:"," (Array.to_list str_arr) ^ "]")
   in
   let decode str =
-    let parse value =
-      let trimmed = String.strip value in
-      if String.is_empty trimmed then None else Some (Float.of_string trimmed)
-    in
     let trimmed = String.strip str in
-    if String.length trimmed < 2 then Ok [||]
+    if String.length trimmed < 2
+       || not (Char.equal (String.get trimmed 0) '[')
+       || not (Char.equal (String.get trimmed (String.length trimmed - 1)) ']')
+    then Error "Invalid vector literal"
     else
-      let inner = String.sub trimmed ~pos:1 ~len:(String.length trimmed - 2) in
-      if String.is_empty (String.strip inner) then Ok [||]
+      let inner =
+        String.sub trimmed ~pos:1 ~len:(String.length trimmed - 2) |> String.strip
+      in
+      if String.is_empty inner then Ok [||]
       else
-        let parts = String.split ~on:',' inner in
-        let floats =
-          List.filter_map parts ~f:(fun part ->
-              try parse part with Stdlib.Failure _ -> None)
+        let parse part =
+          let value = String.strip part in
+          if String.is_empty value then Error "Empty vector component"
+          else
+            try Ok (Float.of_string value) with
+            | Stdlib.Failure _ -> Error ("Invalid float: " ^ value)
         in
-        Ok (Array.of_list floats)
+        let rec collect acc = function
+          | [] -> Ok (Array.of_list (List.rev acc))
+          | part :: rest -> (
+              match parse part with
+              | Ok v -> collect (v :: acc) rest
+              | Error _ as err -> err)
+        in
+        collect [] (String.split ~on:',' inner)
   in
   Caqti_type.(custom ~encode ~decode string)
 
@@ -513,6 +572,17 @@ let get_fen_embedding_query =
       \   FROM fen_embeddings\n\
       \   WHERE fen_id = ?"
 
+let get_embedding_version_query =
+  let open Caqti_request.Infix in
+  (uuid -->? Caqti_type.string)
+  @:- "SELECT embedding_version FROM fen_embeddings WHERE fen_id = ?"
+
+let position_motifs_query =
+  let open Caqti_request.Infix in
+  (Caqti_type.(t2 uuid int) -->? string_array)
+  @:-
+       "SELECT motif_flags FROM games_positions WHERE game_id = ? AND ply_number = ?"
+
 let similar_fens_query =
   let open Caqti_request.Infix in
   (Caqti_type.(t2 uuid int) -->* Caqti_type.(t5 uuid string string float int))
@@ -697,6 +767,14 @@ let get_fen_details pool ~fen_id =
                     }
                   in
                   Lwt.return (Ok (Some record)))))
+
+let get_fen_embedding_version pool ~fen_id =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.find_opt get_embedding_version_query fen_id)
+
+let get_position_motifs pool ~game_id ~ply_number =
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.find_opt position_motifs_query (game_id, ply_number))
 
 let get_fen_by_text pool ~fen_text =
   Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->

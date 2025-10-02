@@ -5,6 +5,7 @@
   test_helpers
   test_database
   test_vector
+  test_pgn_source
   test_search_service
   test_retrieve_cli
   test_ingest_cli)

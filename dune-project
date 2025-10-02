@@ -34,6 +34,7 @@
   tls
   uri
   uuidm
+  uutf
   (alcotest :with-test)
   (alcotest-lwt :with-test)
   (ocamlformat (>= 0.27.0))

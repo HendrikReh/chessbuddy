@@ -233,6 +233,39 @@ let test_inner_product () =
 
           Lwt.return_unit))
 
+let test_embedding_version_lookup () =
+  Alcotest_lwt.test_case "lookup embedding version" `Quick (fun _switch () ->
+      with_clean_db (fun pool ->
+          let%lwt fen_id =
+            Chessbuddy.Database.upsert_fen pool
+              ~fen_text:"test/version/8/8/8/8/8/8 w - -" ~side_to_move:'w'
+              ~castling:"-" ~en_passant:None ~material_signature:"VER"
+            >|= check_ok "FEN creation failed"
+          in
+          let%lwt () =
+            Chessbuddy.Database.record_embedding pool ~fen_id
+              ~embedding:(make_embedding 768 0.3) ~version:"ver-1"
+            >|= check_ok "Embedding insert failed"
+          in
+          let%lwt version_res =
+            Chessbuddy.Database.get_fen_embedding_version pool ~fen_id
+          in
+          let version = check_ok "Version lookup failed" version_res in
+          Alcotest.(check (option string)) "Initial version" (Some "ver-1")
+            version;
+          let%lwt () =
+            Chessbuddy.Database.record_embedding pool ~fen_id
+              ~embedding:(make_embedding 768 0.7) ~version:"ver-2"
+            >|= check_ok "Embedding update failed"
+          in
+          let%lwt updated_res =
+            Chessbuddy.Database.get_fen_embedding_version pool ~fen_id
+          in
+          let updated = check_ok "Updated lookup failed" updated_res in
+          Alcotest.(check (option string)) "Updated version" (Some "ver-2")
+            updated;
+          Lwt.return_unit))
+
 (* Collect all vector tests *)
 let tests =
   [
@@ -241,4 +274,5 @@ let tests =
     test_cosine_similarity ();
     test_l2_distance ();
     test_inner_product ();
+    test_embedding_version_lookup ();
   ]

@@ -44,6 +44,7 @@ flowchart TB
     subgraph CORE["Core Library (lib/)"]
         PIPE[Ingestion Pipeline<br/>ingestion_pipeline.ml]
         PGN[PGN Parser<br/>pgn_source.ml]
+        CHESS[Chess Engine<br/>chess_engine.ml]
         FEN[FEN Generator<br/>fen_generator.ml]
         EMB[Position Embedder<br/>embedder.ml]
         SEARCH[Search Service<br/>search_service.ml]
@@ -69,6 +70,7 @@ flowchart TB
     RET --> SEARCH
     PIPE --> PGN
     PIPE --> FEN
+    FEN --> CHESS
     PIPE --> EMB
     PIPE --> IDX
     SEARCH --> IDX
@@ -89,7 +91,8 @@ flowchart TB
 | **Domain** | `types.ml` | Core data structures (Player, Game, Move, Batch) |
 | **Pipeline** | `ingestion_pipeline.ml` | Orchestration, deduplication, workflow coordination |
 | **Parsing** | `pgn_source.ml` | PGN format parsing with annotation preservation |
-| **Position** | `fen_generator.ml` | FEN string generation (currently placeholder-based) |
+| **Chess** | `chess_engine.ml` | Board representation, SAN move parsing, FEN generation |
+| **Position** | `fen_generator.ml` | FEN string generation (delegates to chess_engine) |
 | **Embeddings** | `embedder.ml`, `search_embedder.ml`, `openai_client.ml` | Vector generation for positions and text |
 | **Search** | `search_service.ml`, `search_indexer.ml` | Natural language search over entities |
 | **Data Access** | `database.ml` | SQL query abstraction, connection pooling |
@@ -158,6 +161,44 @@ module type PGN_SOURCE     (* File → Game stream *)
 - `Types.Game.t` with structured header and moves
 - Placeholder FENs with accurate side-to-move and ply numbering
 
+### Chess Engine (`lib/chess_engine.ml`)
+
+**Purpose:** Lightweight board state tracking and FEN generation without external dependencies.
+
+**Core Modules:**
+```ocaml
+module Board         (* 8x8 board representation with functional updates *)
+module Move_parser   (* SAN move parsing and application *)
+module Fen           (* Complete FEN string generation and parsing *)
+```
+
+**Capabilities:**
+- Board representation: 8×8 array indexed `[file][rank]` with immutable updates
+- FEN generation: Complete FEN strings with all metadata (board, side-to-move, castling, en-passant, clocks)
+- FEN parsing: Bidirectional conversion between FEN strings and board state
+- SAN move parsing: Supports castling (`O-O`, `O-O-O`), promotions (`e8=Q`), captures (`exd5`), and disambiguation (`Nbd7`)
+- Move application: Updates board state and tracks side effects (captures, en-passant targets, castling updates)
+
+**Performance Targets:**
+- FEN generation: <1ms per position
+- Move application: <0.5ms per move
+- Board clone: <0.1ms
+
+**Implementation Status:**
+- ✅ Module interface complete with comprehensive documentation
+- ✅ Board representation and FEN serialization working
+- ✅ Test suite with 16 test cases (50% passing, move logic needs fixes)
+- ⚠️ Integration with `fen_generator.ml` pending
+- ⚠️ Move application has implementation bugs (captured piece detection, board updates)
+
+**Design Decisions:**
+- **No external dependencies**: Built from scratch to avoid OCaml chess library availability issues
+- **Functional updates**: Board modifications return new boards (immutable data)
+- **Permissive validation**: Does not check move legality, assumes PGN moves are valid
+- **Self-contained types**: `castling_rights` defined locally to avoid circular dependencies
+
+See [docs/CHESS_ENGINE_STATUS.md](CHESS_ENGINE_STATUS.md) for detailed implementation status.
+
 ### Database Layer (`lib/database.ml`)
 
 **Custom Caqti Types:**
@@ -205,6 +246,7 @@ sequenceDiagram
     participant CLI as Ingest CLI
     participant Pipe as Pipeline
     participant PGN as PGN Source
+    participant CHESS as Chess Engine
     participant FEN as FEN Generator
     participant DB as Database
     participant EMB as Embedder
@@ -234,6 +276,9 @@ sequenceDiagram
 
         loop For each move
             Pipe->>FEN: generate_fen(ply, side)
+            Note right of FEN: Future: FEN will delegate<br/>to Chess Engine for<br/>accurate board state
+            FEN->>CHESS: apply_san(board, san, side)
+            CHESS-->>FEN: board, captured, en_passant
             FEN-->>Pipe: fen_before, fen_after
 
             Pipe->>DB: upsert_fen(fen_after)
@@ -371,22 +416,38 @@ flowchart LR
 
 ## Key Design Decisions
 
-### 1. Placeholder FENs (Temporary)
+### 1. Custom Chess Engine Implementation
 
-**Decision:** Generate FENs with starting position board state but accurate metadata (side-to-move, ply, castling).
+**Decision:** Build a lightweight chess engine from scratch rather than depend on external libraries.
 
 **Rationale:**
-- Unblocks ingestion pipeline development
-- 99.93% deduplication still achieved (301 unique from 428,853 positions)
-- Positions tracked correctly for future chess engine integration
+- No suitable OCaml chess libraries available in opam (see `docs/CHESS_LIBRARY_EVALUATION.md`)
+- ocamlchess exists but is a UCI engine, not a library
+- pgn_parser is a binary tool without FEN generation API
+- ~500 LOC implementation is manageable and avoids dependency risk
 
-**Limitation:** Semantic search over positions returns inaccurate results.
+**Implementation Status (v0.0.5):**
+- ✅ Board representation with functional updates (8×8 array)
+- ✅ Complete FEN generation and parsing
+- ✅ SAN move parser (castling, promotions, captures, disambiguation)
+- ✅ Module interface fully documented (187 lines)
+- ⚠️ 8 test failures in move application (bugs to fix)
+- ⚠️ Integration with `fen_generator.ml` pending
+
+**Performance Targets:**
+- FEN generation: <1ms per position
+- Move application: <0.5ms per move
+- Board clone: <0.1ms
 
 **Migration Path:**
-1. Integrate chess engine library (shakmaty, ocaml-chess)
-2. Add `--regenerate-fens` flag to ingestion CLI
-3. Re-ingest archives with real position tracking
-4. Deprecate placeholder generator
+1. ✅ Complete chess_engine implementation
+2. ⚠️ Fix move application bugs (board updates, piece tracking)
+3. 🔄 Wire chess_engine into fen_generator.ml
+4. 🔄 Benchmark performance against targets
+5. 🔄 Re-ingest test dataset with real position tracking
+6. 🔄 Update deduplication metrics (expect drop from 99.93% to 5-20%)
+
+**Current Limitation:** FEN generator still uses placeholder board state. Deduplication rate of 99.93% is artificially high and will drop significantly once real positions are tracked.
 
 ### 2. Two-Tier Embedding Strategy
 

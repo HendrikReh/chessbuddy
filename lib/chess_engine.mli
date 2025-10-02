@@ -22,6 +22,14 @@ type color = White | Black
 (** Board square - either empty or occupied by a colored piece *)
 type square = Empty | Piece of { piece_type : piece; color : color }
 
+type castling_rights = {
+  white_kingside : bool;
+  white_queenside : bool;
+  black_kingside : bool;
+  black_queenside : bool;
+}
+(** Castling rights for both sides *)
+
 (** {1 Board Module} *)
 
 module Board : sig
@@ -89,7 +97,7 @@ module Move_parser : sig
     Board.t ->
     san:string ->
     side_to_move:color ->
-    castling_rights:Types.Castling_rights.t ->
+    castling_rights:castling_rights ->
     (move_result, string) Result.t
   (** Apply Standard Algebraic Notation move to board
 
@@ -115,7 +123,7 @@ end
 module Fen : sig
   type position_metadata = {
     side_to_move : color;
-    castling_rights : Types.Castling_rights.t;
+    castling_rights : castling_rights;
     en_passant_square : string option;
     halfmove_clock : int;
     fullmove_number : int;

@@ -1,6 +1,7 @@
 (** Tests for Chess_engine module *)
 
 open! Base
+open Chessbuddy
 
 let test_initial_board () =
   let board = Chess_engine.Board.initial in
@@ -47,7 +48,7 @@ let test_fen_generation_initial_position () =
       Chess_engine.Fen.side_to_move = White;
       castling_rights =
         {
-          Types.Castling_rights.white_kingside = true;
+          Chess_engine.white_kingside = true;
           white_queenside = true;
           black_kingside = true;
           black_queenside = true;
@@ -136,7 +137,7 @@ let test_castling_rights_encoding () =
       Chess_engine.Fen.side_to_move = White;
       castling_rights =
         {
-          Types.Castling_rights.white_kingside = true;
+          Chess_engine.white_kingside = true;
           white_queenside = true;
           black_kingside = true;
           black_queenside = true;
@@ -157,7 +158,7 @@ let test_castling_rights_encoding () =
       Chess_engine.Fen.side_to_move = White;
       castling_rights =
         {
-          Types.Castling_rights.white_kingside = false;
+          Chess_engine.white_kingside = false;
           white_queenside = false;
           black_kingside = false;
           black_queenside = false;
@@ -178,7 +179,7 @@ let test_castling_rights_encoding () =
       Chess_engine.Fen.side_to_move = White;
       castling_rights =
         {
-          Types.Castling_rights.white_kingside = true;
+          Chess_engine.white_kingside = true;
           white_queenside = false;
           black_kingside = false;
           black_queenside = true;
@@ -289,7 +290,7 @@ let test_pawn_move () =
   let board = Chess_engine.Board.initial in
   let castling =
     {
-      Types.Castling_rights.white_kingside = true;
+      Chess_engine.white_kingside = true;
       white_queenside = true;
       black_kingside = true;
       black_queenside = true;
@@ -324,7 +325,7 @@ let test_piece_move () =
   let board = Chess_engine.Board.initial in
   let castling =
     {
-      Types.Castling_rights.white_kingside = true;
+      Chess_engine.white_kingside = true;
       white_queenside = true;
       black_kingside = true;
       black_queenside = true;
@@ -363,7 +364,7 @@ let test_castling () =
 
   let castling =
     {
-      Types.Castling_rights.white_kingside = true;
+      Chess_engine.white_kingside = true;
       white_queenside = true;
       black_kingside = true;
       black_queenside = true;
@@ -413,7 +414,7 @@ let test_capture () =
 
   let castling =
     {
-      Types.Castling_rights.white_kingside = false;
+      Chess_engine.white_kingside = false;
       white_queenside = false;
       black_kingside = false;
       black_queenside = false;
@@ -451,7 +452,7 @@ let test_promotion () =
 
   let castling =
     {
-      Types.Castling_rights.white_kingside = false;
+      Chess_engine.white_kingside = false;
       white_queenside = false;
       black_kingside = false;
       black_queenside = false;
@@ -490,7 +491,7 @@ let test_disambiguation () =
 
   let castling =
     {
-      Types.Castling_rights.white_kingside = false;
+      Chess_engine.white_kingside = false;
       white_queenside = false;
       black_kingside = false;
       black_queenside = false;
@@ -526,7 +527,7 @@ let test_full_game_sequence () =
   let board = Chess_engine.Board.initial in
   let castling =
     {
-      Types.Castling_rights.white_kingside = true;
+      Chess_engine.white_kingside = true;
       white_queenside = true;
       black_kingside = true;
       black_queenside = true;
@@ -582,9 +583,10 @@ let test_full_game_sequence () =
   let fen = Chess_engine.Fen.generate ~board ~metadata in
 
   (* Verify pieces are in correct positions *)
+  (* After 1. e4 e5 2. Nf3 Nc6, black's back rank should be r1bqkbnr *)
   Alcotest.(check bool)
     "FEN contains proper position" true
-    (String.is_substring ~substring:"rnbqkb" fen)
+    (String.is_substring ~substring:"r1bqkbnr" fen)
 
 let suite =
   [
@@ -607,3 +609,9 @@ let suite =
     ("Disambiguation", `Quick, test_disambiguation);
     ("Full game sequence", `Quick, test_full_game_sequence);
   ]
+
+let tests =
+  List.map suite ~f:(fun (name, speed, test_fn) ->
+      Alcotest_lwt.test_case name speed (fun _switch () ->
+          test_fn ();
+          Lwt.return_unit))

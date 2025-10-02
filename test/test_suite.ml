@@ -12,6 +12,5 @@ let () =
          ("Search Service", Test_search_service.tests);
          ("Retrieve CLI", Test_retrieve_cli.tests);
          ("Ingest CLI", Test_ingest_cli.tests);
-         ( "Chess Engine",
-           List.map ~f:Alcotest_lwt.test_case_sync Test_chess_engine.suite );
+         ("Chess Engine", Test_chess_engine.tests);
        ])

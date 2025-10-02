@@ -6,6 +6,13 @@ type piece = King | Queen | Rook | Bishop | Knight | Pawn
 type color = White | Black
 type square = Empty | Piece of { piece_type : piece; color : color }
 
+type castling_rights = {
+  white_kingside : bool;
+  white_queenside : bool;
+  black_kingside : bool;
+  black_queenside : bool;
+}
+
 (* Utility functions *)
 
 let color_to_fen_char = function White -> 'w' | Black -> 'b'
@@ -74,7 +81,7 @@ module Board = struct
   let empty = Array.init 8 ~f:(fun _ -> Array.init 8 ~f:(fun _ -> Empty))
 
   let initial =
-    let board = empty in
+    let board = Array.init 8 ~f:(fun _ -> Array.init 8 ~f:(fun _ -> Empty)) in
     (* Set up white pieces (rank 0 = rank 1) *)
     board.(0).(0) <- Piece { piece_type = Rook; color = White };
     board.(1).(0) <- Piece { piece_type = Knight; color = White };
@@ -141,7 +148,7 @@ module Board = struct
     Buffer.contents buf
 
   let of_fen_board fen_board =
-    let board = empty in
+    let board = Array.init 8 ~f:(fun _ -> Array.init 8 ~f:(fun _ -> Empty)) in
     let ranks = String.split ~on:'/' fen_board in
     if List.length ranks <> 8 then
       Error
@@ -229,7 +236,7 @@ module Move_parser = struct
     promotion : piece option;
   }
 
-  let parse_san san ~side_to_move =
+  let parse_san san ~side_to_move:_ =
     (* Remove check (+) and checkmate (#) annotations *)
     let san =
       String.filter san ~f:(fun c -> not (Char.equal c '+' || Char.equal c '#'))
@@ -245,23 +252,18 @@ module Move_parser = struct
       if len < 2 then Error (Printf.sprintf "Invalid SAN: too short '%s'" san)
       else
         (* Check for promotion (e8=Q) *)
-        let san, promotion =
+        let san_result, promotion =
           if len >= 4 && Char.equal (String.get san (len - 2)) '=' then
             let promo_char = String.get san (len - 1) in
-            let promo_piece =
-              match Char.uppercase promo_char with
-              | 'Q' -> Ok Queen
-              | 'R' -> Ok Rook
-              | 'B' -> Ok Bishop
-              | 'N' -> Ok Knight
-              | c -> Error (Printf.sprintf "Invalid promotion piece: %c" c)
-            in
-            Result.map promo_piece ~f:(fun p ->
-                (String.sub san ~pos:0 ~len:(len - 2), Some p))
-            |> Result.join
-          else Ok (san, None)
+            match Char.uppercase promo_char with
+            | 'Q' -> (Ok (String.sub san ~pos:0 ~len:(len - 2)), Some Queen)
+            | 'R' -> (Ok (String.sub san ~pos:0 ~len:(len - 2)), Some Rook)
+            | 'B' -> (Ok (String.sub san ~pos:0 ~len:(len - 2)), Some Bishop)
+            | 'N' -> (Ok (String.sub san ~pos:0 ~len:(len - 2)), Some Knight)
+            | c -> (Error (Printf.sprintf "Invalid promotion piece: %c" c), None)
+          else (Ok san, None)
         in
-        Result.bind san ~f:(fun san ->
+        Result.bind san_result ~f:(fun san ->
             let len = String.length san in
             (* Last 2 chars are destination square *)
             let to_square = String.sub san ~pos:(len - 2) ~len:2 in
@@ -362,7 +364,41 @@ module Move_parser = struct
             let rank_match =
               match from_rank with None -> true | Some r -> r = rank
             in
-            if file_match && rank_match then
+            (* Check if this piece can actually reach the destination *)
+            let can_reach =
+              match piece with
+              | Pawn ->
+                  (* Pawn move: must be on same file and move forward *)
+                  let direction =
+                    match piece_color with White -> 1 | Black -> -1
+                  in
+                  let is_capture = Option.is_some from_file in
+                  if is_capture then
+                    (* Capture: file must match from_file, rank must be one forward *)
+                    file_match && to_rank = rank + direction
+                  else
+                    (* Non-capture: must be on destination file, move 1 or 2 forward *)
+                    file = to_file
+                    && (to_rank = rank + direction
+                       || (to_rank = rank + (2 * direction)
+                          && ((phys_equal piece_color White && rank = 1)
+                             || (phys_equal piece_color Black && rank = 6))))
+              | Knight ->
+                  (* Knight moves: L-shape (2,1) or (1,2) *)
+                  let df = Int.abs (to_file - file) in
+                  let dr = Int.abs (to_rank - rank) in
+                  (df = 2 && dr = 1) || (df = 1 && dr = 2)
+              | King ->
+                  (* King moves: one square in any direction *)
+                  let df = Int.abs (to_file - file) in
+                  let dr = Int.abs (to_rank - rank) in
+                  df <= 1 && dr <= 1 && (df > 0 || dr > 0)
+              | Queen | Rook | Bishop ->
+                  (* TODO: Add proper sliding piece logic (check for blockers) *)
+                  (* For now, just check if move is along valid line *)
+                  true
+            in
+            if file_match && rank_match && can_reach then
               candidates := (file, rank) :: !candidates
         | _ -> ()
       done
@@ -383,14 +419,14 @@ module Move_parser = struct
              (to_rank + 1))
     | _ -> Error "Ambiguous move: multiple pieces can move to destination"
 
-  let apply_san board ~san ~side_to_move ~castling_rights =
+  let apply_san board ~san ~side_to_move ~castling_rights:_ =
     Result.bind (parse_san san ~side_to_move) ~f:(function
       | `Kingside_castle ->
           let rank = match side_to_move with White -> 0 | Black -> 7 in
-          let king_from = (4, rank) in
-          let king_to = (6, rank) in
-          let rook_from = (7, rank) in
-          let rook_to = (5, rank) in
+          let _king_from = (4, rank) in
+          let _king_to = (6, rank) in
+          let _rook_from = (7, rank) in
+          let _rook_to = (5, rank) in
 
           let board = Board.set board ~file:4 ~rank Empty in
           let board = Board.set board ~file:7 ~rank Empty in
@@ -437,7 +473,7 @@ module Move_parser = struct
             from_rank;
             to_file;
             to_rank;
-            is_capture;
+            is_capture = _;
             promotion;
           } ->
           (* Find source square *)
@@ -456,8 +492,9 @@ module Move_parser = struct
                 if phys_equal piece Pawn && Int.abs (to_rank - src_rank) = 2
                 then
                   let ep_rank = (src_rank + to_rank) / 2 in
-                  Result.ok (indices_to_square_notation to_file ep_rank)
-                  |> Result.join |> Result.ok
+                  match indices_to_square_notation to_file ep_rank with
+                  | Ok sq -> Some sq
+                  | Error _ -> None
                 else None
               in
 
@@ -496,7 +533,7 @@ end
 module Fen = struct
   type position_metadata = {
     side_to_move : color;
-    castling_rights : Types.Castling_rights.t;
+    castling_rights : castling_rights;
     en_passant_square : string option;
     halfmove_clock : int;
     fullmove_number : int;
@@ -506,7 +543,6 @@ module Fen = struct
     let board_part = Board.to_fen_board board in
     let side_part = String.of_char (color_to_fen_char metadata.side_to_move) in
     let castling_part =
-      let open Types.Castling_rights in
       let rights = metadata.castling_rights in
       let parts = [] in
       let parts = if rights.white_kingside then "K" :: parts else parts in
@@ -550,8 +586,7 @@ module Fen = struct
               ~f:(fun side_to_move ->
                 let castling_rights =
                   {
-                    Types.Castling_rights.white_kingside =
-                      String.contains castling_part 'K';
+                    white_kingside = String.contains castling_part 'K';
                     white_queenside = String.contains castling_part 'Q';
                     black_kingside = String.contains castling_part 'k';
                     black_queenside = String.contains castling_part 'q';

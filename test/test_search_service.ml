@@ -76,10 +76,32 @@ let test_search_prioritises_relevant_matches () =
               ~name:"Hikaru Nakamura" ~fide_id:(Some "125777")
               ~embedder:(Some embedder)
           in
+          let game =
+            {
+              Types.Game.header =
+                {
+                  event = Some "Magnus prepares tactical endgame surprises";
+                  site = None;
+                  game_date = None;
+                  round = None;
+                  eco = None;
+                  opening = None;
+                  termination = None;
+                  white_player = "Magnus";
+                  black_player = "Test";
+                  result = "*";
+                  white_elo = None;
+                  black_elo = None;
+                  white_fide_id = None;
+                  black_fide_id = None;
+                };
+              moves = [];
+              source_pgn = "";
+            }
+          in
           let* () =
-            Search_indexer.index_document pool
-              ~entity_type:Search_indexer.entity_type_game ~entity_id:game_id
-              ~content:"Magnus prepares tactical endgame surprises"
+            Search_indexer.index_game pool ~game_id ~game
+              ~batch_label:"test-batch" ~source_path:"test.pgn"
               ~embedder:(Some embedder)
           in
 

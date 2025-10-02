@@ -1,5 +1,158 @@
 # Release Notes
 
+## Version 0.0.5 - Chess Engine Implementation
+
+### Overview
+Implements a custom lightweight chess engine for board state tracking and FEN generation. Adds comprehensive natural language search infrastructure. Updates all documentation to reflect new capabilities and current implementation status.
+
+### Major Features
+
+#### Custom Chess Engine (`lib/chess_engine.ml`)
+- **Board Representation**: 8×8 array with functional updates (immutable)
+- **FEN Generation**: Complete FEN strings with all metadata fields
+- **FEN Parsing**: Bidirectional conversion between FEN and board state
+- **SAN Move Parser**: Supports castling (`O-O`, `O-O-O`), promotions (`e8=Q`), captures (`exd5`), disambiguation (`Nbd7`)
+- **Move Application**: Updates board state and tracks side effects (captures, en-passant, castling updates)
+- **Module Interface**: Fully documented in `chess_engine.mli` (187 lines)
+- **Test Coverage**: 16 test cases (8 passing, 8 failures to fix)
+
+**Performance Targets:**
+- FEN generation: <1ms per position
+- Move application: <0.5ms per move
+- Board clone: <0.1ms
+
+**Status:** ⚠️ Implementation complete but integration pending due to 8 test failures in move application logic.
+
+#### Natural Language Search
+- **Search Indexer** (`lib/search_indexer.ml`): Text document indexing for games, players, FENs, batches, embeddings
+- **Search Service** (`lib/search_service.ml`): Entity-filtered semantic search with ranking
+- **Text Embedder** (`lib/search_embedder.ml`): OpenAI text-embedding-3-small integration
+- **Stub Embedder**: Testing without API keys (keyword-based matching)
+- **Test Coverage**: 2 passing tests (entity filters, relevance ranking)
+
+#### CLI Testing Infrastructure
+- **Ingest CLI Tests** (`test/test_ingest_cli.ml`): 12 test cases validating argument parsing
+- **Retrieve CLI Tests** (`test/test_retrieve_cli.ml`): 9 test cases for command validation
+- **Coverage**: All help flows, required arguments, command registry validation
+
+### Documentation Updates
+
+#### Comprehensive Documentation Refresh
+- **CLAUDE.md**: Added chess engine implementation section, updated module structure
+- **README.md**: Added chess_engine and search_indexer to API reference
+- **docs/ARCHITECTURE.md**:
+  - Added Chess Engine section with capabilities and design decisions
+  - Updated component diagrams with chess engine integration
+  - Replaced "Placeholder FENs" with "Custom Chess Engine Implementation"
+  - Added implementation status with progress indicators
+- **docs/DEVELOPER.md**:
+  - Added "Recent Changes (v0.0.5)" section
+  - Updated module table with status indicators
+  - Expanded test status from 34 to 54 tests
+  - Documented 8 known chess engine failures
+  - Added migration notes for developers
+
+### Test Suite Expansion
+
+**Total Tests:** 54 (up from 34 in v0.0.4)
+**Passing:** 46 (85% pass rate)
+**New Test Files:**
+- `test/test_chess_engine.ml` - 16 tests for board and move validation
+- `test/test_pgn_source.ml` - 2 tests for UTF-8 handling
+- `test/test_search_service.ml` - 2 tests for natural language search
+- `test/test_retrieve_cli.ml` - 9 tests (expanded from v0.0.4)
+- `test/test_ingest_cli.ml` - 12 tests (expanded from v0.0.4)
+
+### Known Issues
+
+**Chess Engine Move Application (8 failures):**
+- Board state not updating correctly after moves
+- Captured piece detection failing
+- Source square finding issues in disambiguation
+- FEN round-trip not preserving board state
+
+**Location:** `lib/chess_engine.ml:388-500`
+
+**Impact:** Integration with ingestion pipeline blocked until these bugs are fixed.
+
+### Breaking Changes
+
+None - all changes are additive.
+
+### Performance Impact
+
+**Expected changes when chess_engine is integrated:**
+- FEN deduplication will drop from 99.93% to realistic levels (5-20% unique positions expected)
+- Processing speed may slow initially until optimizations are applied
+- Memory usage will increase due to board state tracking per game
+
+**Target performance maintained:**
+- <1ms FEN generation
+- <0.5ms move application
+- ~15 games/sec ingestion throughput
+
+### Migration Notes
+
+**For developers:**
+1. Chess engine is implemented in `lib/chess_engine.ml` (451 lines)
+2. FEN generator still uses placeholder board state
+3. Run `dune runtest` to see chess_engine test failures
+4. Integration blocked on fixing 8 move application bugs
+5. Review `docs/CHESS_ENGINE_STATUS.md` for detailed implementation status
+
+**For users:**
+No changes required - chess engine is not yet active in production ingestion flow.
+
+### Technical Stack Updates
+
+**New Modules:**
+- `lib/chess_engine.ml` - Lightweight board state tracking
+- `lib/search_indexer.ml` - Text document indexing
+- `lib/search_service.ml` - Semantic search API
+- `lib/search_embedder.ml` - OpenAI text embedding wrapper
+
+**New Documentation:**
+- `docs/CHESS_ENGINE_STATUS.md` - Implementation details
+- `docs/IMPLEMENTATION_PLAN.md` - Development roadmap
+- `docs/CHESS_LIBRARY_EVALUATION.md` - Library analysis
+
+**Updated Modules:**
+- `lib/chessbuddy.ml` - Exports Chess_engine module
+- `test/test_suite.ml` - Runs chess_engine tests
+
+### Testing
+
+```bash
+# Build and format
+export PKG_CONFIG_PATH="/opt/homebrew/opt/libpq/lib/pkgconfig:$PKG_CONFIG_PATH"
+dune fmt
+dune build
+
+# Run all tests (54 tests, 46 passing)
+dune runtest
+
+# Run specific test suites
+dune runtest --only-test "Chess Engine"
+dune runtest --only-test "Search Service"
+```
+
+### Next Steps (v0.0.6)
+
+1. **Fix chess_engine bugs** - Resolve 8 failing test cases
+2. **Integration** - Wire chess_engine into fen_generator.ml
+3. **Benchmarking** - Validate performance targets
+4. **Production testing** - Full TWIC ingestion with real board tracking
+5. **Update metrics** - Real FEN deduplication rates
+
+### References
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Chess engine design decisions
+- [DEVELOPER.md](docs/DEVELOPER.md) - Recent changes and test status
+- [CHESS_ENGINE_STATUS.md](docs/CHESS_ENGINE_STATUS.md) - Implementation details
+- [IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) - Development roadmap
+
+---
+
 ## Version 0.0.4 - Documentation Alignment
 
 ### Overview

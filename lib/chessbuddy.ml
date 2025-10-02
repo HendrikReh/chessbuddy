@@ -8,3 +8,4 @@ module Openai_client = Openai_client
 module Search_indexer = Search_indexer
 module Search_embedder = Search_embedder
 module Search_service = Search_service
+module Chess_engine = Chess_engine

@@ -40,13 +40,30 @@ dune exec benchmark/benchmark.exe -- \
 
 ### Retrieval Benchmarks
 
-**Status**: Retrieval benchmarks are not yet implemented in v0.0.5. The focus is currently on ingestion performance measurement. Future versions will add:
+**4. Game Retrieval**
+- Fetches complete game details by UUID
+- Tests join performance (games → players, positions)
+- Reports: latency distribution, throughput
 
-- Game retrieval by UUID
-- Player search with ILIKE patterns
-- FEN lookup by UUID
-- Vector similarity search (pgvector)
-- Batch listing with pagination
+**5. Player Search**
+- Tests fuzzy name search with ILIKE queries
+- Multiple search patterns: "White", "Black", "Player", etc.
+- Reports: search latency, index effectiveness
+
+**6. FEN Lookup**
+- Direct FEN retrieval by UUID
+- Tests single-record fetch performance
+- Reports: lookup latency
+
+**7. Vector Similarity Search**
+- pgvector cosine similarity search (k=10)
+- Tests IVFFLAT index performance
+- Reports: search latency, throughput (queries/sec)
+
+**8. Batch Listing**
+- Lists recent ingestion batches with metadata
+- Tests pagination and ordering
+- Reports: list operation latency
 
 ## Configuration Options
 
@@ -154,13 +171,91 @@ FEN Duplicate (dedup):
 
 Deduplication speedup: 1.41x
 
-=== Retrieval Benchmarks ===
+=== Game Retrieval Benchmark ===
 
-Retrieval benchmarks not yet implemented.
-Focus on ingestion benchmark for now.
+Fetching sample game IDs...
+Retrieving 200 games...
+
+Game Retrieval:
+  Count:       200
+  Total time:  1.45 s
+  Mean:        7.25 ms
+  Median:      7.12 ms
+  Min:         5.34 ms
+  Max:         15.67 ms
+  P50:         7.12 ms
+  P95:         9.87 ms
+  P99:         12.34 ms
+  Throughput:  137.93 /s
+
+=== Player Search Benchmark ===
+
+Searching 5 terms, 40 iterations each...
+
+Player Search:
+  Count:       200
+  Total time:  1.23 s
+  Mean:        6.15 ms
+  Median:      5.98 ms
+  Min:         4.56 ms
+  Max:         11.23 ms
+  P50:         5.98 ms
+  P95:         8.45 ms
+  P99:         10.12 ms
+  Throughput:  162.60 /s
+
+=== FEN Lookup Benchmark ===
+
+Fetching sample FEN IDs...
+Looking up 200 FENs...
+
+FEN Lookup:
+  Count:       200
+  Total time:  0.89 s
+  Mean:        4.45 ms
+  Median:      4.32 ms
+  Min:         3.21 ms
+  Max:         9.87 ms
+  P50:         4.32 ms
+  P95:         6.12 ms
+  P99:         7.89 ms
+  Throughput:  224.72 /s
+
+=== Vector Similarity Search Benchmark ===
+
+Finding FEN with embedding...
+Running 200 similarity searches...
+
+Similarity Search:
+  Count:       200
+  Total time:  2.34 s
+  Mean:        11.70 ms
+  Median:      11.45 ms
+  Min:         8.92 ms
+  Max:         23.45 ms
+  P50:         11.45 ms
+  P95:         15.67 ms
+  P99:         19.23 ms
+  Throughput:  85.47 /s
+
+=== Batch Listing Benchmark ===
+
+Listing batches 200 times...
+
+Batch Listing:
+  Count:       200
+  Total time:  0.78 s
+  Mean:        3.90 ms
+  Median:      3.78 ms
+  Min:         2.89 ms
+  Max:         8.23 ms
+  P50:         3.78 ms
+  P95:         5.23 ms
+  P99:         6.45 ms
+  Throughput:  256.41 /s
 
 =================================
-Total benchmark time: 25.12 s
+Total benchmark time: 35.45 s
 =================================
 ```
 
@@ -174,8 +269,11 @@ Total benchmark time: 25.12 s
 | Player Upsert | 300-500 ops/sec | 2-3 ms |
 | FEN Deduplication (first) | 300-500 ops/sec | 2-3 ms |
 | FEN Deduplication (dupe) | 400-700 ops/sec | 1.5-2.5 ms |
-
-**Note**: Retrieval benchmarks not yet implemented. Values will be added in future releases.
+| Game Retrieval | 100-200 ops/sec | 5-10 ms |
+| Player Search | 100-200 ops/sec | 5-8 ms |
+| FEN Lookup | 150-300 ops/sec | 3-6 ms |
+| Similarity Search | 50-100 ops/sec | 10-15 ms |
+| Batch Listing | 200-300 ops/sec | 3-5 ms |
 
 ## Interpreting Results
 

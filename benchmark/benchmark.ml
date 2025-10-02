@@ -297,13 +297,218 @@ module Ingestion = struct
     Lwt.return_unit
 end
 
-(** Retrieval benchmarks - simplified for now *)
+(** Retrieval benchmarks *)
 module Retrieval = struct
-  let benchmark_all config =
-    let _config = config in
-    Fmt.printf "\n=== Retrieval Benchmarks ===\n";
-    Fmt.printf "Retrieval benchmarks not yet implemented.\n";
-    Fmt.printf "Focus on ingestion benchmark for now.\n";
+  let benchmark_game_retrieval config =
+    Fmt.printf "\n=== Game Retrieval Benchmark ===\n";
+
+    let pool = create_pool config.db_uri in
+    let stats = ref (Stats.create ()) in
+
+    (* Get sample game IDs *)
+    Fmt.printf "Fetching sample game IDs...\n%!";
+    let%lwt game_ids =
+      let%lwt result = Database.list_games pool ~limit:config.retrieval_samples ~offset:0 in
+      match result with
+      | Ok games -> Lwt.return (List.map games ~f:(fun g -> g.Database.game_id))
+      | Error err -> failwith (Caqti_error.show err)
+    in
+
+    if List.is_empty game_ids then (
+      Fmt.printf "No games in database. Run ingestion first.\n";
+      Lwt.return_unit)
+    else (
+      Fmt.printf "Retrieving %d games...\n%!" (List.length game_ids);
+
+      let%lwt () =
+        Lwt_list.iter_s
+          (fun game_id ->
+            let%lwt _, elapsed =
+              Timer.time_lwt (fun () ->
+                  let%lwt result = Database.get_game_detail pool ~game_id in
+                  match result with
+                  | Ok _ -> Lwt.return_unit
+                  | Error err -> failwith (Caqti_error.show err))
+            in
+            stats := Stats.add !stats elapsed;
+            Lwt.return_unit)
+          game_ids
+      in
+
+      Stats.print_summary "Game Retrieval" !stats;
+      Lwt.return_unit)
+
+  let benchmark_player_search config =
+    Fmt.printf "\n=== Player Search Benchmark ===\n";
+
+    let pool = create_pool config.db_uri in
+    let stats = ref (Stats.create ()) in
+    let search_terms = [ "White"; "Black"; "Player"; "100"; "200" ] in
+
+    Fmt.printf "Searching %d terms, %d iterations each...\n%!"
+      (List.length search_terms)
+      (config.retrieval_samples / List.length search_terms);
+
+    let iterations = config.retrieval_samples / List.length search_terms in
+
+    let%lwt () =
+      Lwt_list.iter_s
+        (fun term ->
+          Lwt_list.iter_s
+            (fun _ ->
+              let%lwt _, elapsed =
+                Timer.time_lwt (fun () ->
+                    let%lwt result = Database.search_players pool ~query:term ~limit:10 in
+                    match result with
+                    | Ok _ -> Lwt.return_unit
+                    | Error err -> failwith (Caqti_error.show err))
+              in
+              stats := Stats.add !stats elapsed;
+              Lwt.return_unit)
+            (List.init iterations ~f:(fun i -> i)))
+        search_terms
+    in
+
+    Stats.print_summary "Player Search" !stats;
+    Lwt.return_unit
+
+  let benchmark_fen_lookup config =
+    Fmt.printf "\n=== FEN Lookup Benchmark ===\n";
+
+    let pool = create_pool config.db_uri in
+    let stats = ref (Stats.create ()) in
+
+    (* Get sample FEN IDs by querying games_positions *)
+    Fmt.printf "Fetching sample FEN IDs...\n%!";
+    let uuid_type =
+      let encode uuid = Ok (Uuidm.to_string uuid) in
+      let decode str = match Uuidm.of_string str with
+        | Some uuid -> Ok uuid
+        | None -> Error ("Invalid UUID: " ^ str)
+      in
+      Caqti_type.(custom ~encode ~decode string)
+    in
+    let get_fen_ids_query =
+      let open Caqti_request.Infix in
+      (Caqti_type.int -->* uuid_type)
+      @:- {sql|
+        SELECT DISTINCT fen_id FROM games_positions LIMIT ?
+      |sql}
+    in
+
+    let%lwt fen_ids =
+      let%lwt result =
+        Database.Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+            Db.fold get_fen_ids_query (fun id acc -> id :: acc) config.retrieval_samples [])
+      in
+      match result with
+      | Ok ids -> Lwt.return ids
+      | Error err -> failwith (Caqti_error.show err)
+    in
+
+    if List.is_empty fen_ids then (
+      Fmt.printf "No FENs in database. Run ingestion first.\n";
+      Lwt.return_unit)
+    else (
+      Fmt.printf "Looking up %d FENs...\n%!" (List.length fen_ids);
+
+      let%lwt () =
+        Lwt_list.iter_s
+          (fun fen_id ->
+            let%lwt _, elapsed =
+              Timer.time_lwt (fun () ->
+                  let%lwt result = Database.get_fen_details pool ~fen_id in
+                  match result with
+                  | Ok _ -> Lwt.return_unit
+                  | Error err -> failwith (Caqti_error.show err))
+            in
+            stats := Stats.add !stats elapsed;
+            Lwt.return_unit)
+          fen_ids
+      in
+
+      Stats.print_summary "FEN Lookup" !stats;
+      Lwt.return_unit)
+
+  let benchmark_similar_search config =
+    Fmt.printf "\n=== Vector Similarity Search Benchmark ===\n";
+
+    let pool = create_pool config.db_uri in
+    let stats = ref (Stats.create ()) in
+
+    (* Get a sample FEN with embedding *)
+    Fmt.printf "Finding FEN with embedding...\n%!";
+    let uuid_type =
+      let encode uuid = Ok (Uuidm.to_string uuid) in
+      let decode str = match Uuidm.of_string str with
+        | Some uuid -> Ok uuid
+        | None -> Error ("Invalid UUID: " ^ str)
+      in
+      Caqti_type.(custom ~encode ~decode string)
+    in
+    let get_fen_query =
+      let open Caqti_request.Infix in
+      (Caqti_type.unit -->? uuid_type)
+      @:- {sql|
+        SELECT fen_id FROM fen_embeddings LIMIT 1
+      |sql}
+    in
+
+    let%lwt result =
+      Database.Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+          Db.find_opt get_fen_query ())
+    in
+
+    match result with
+    | Error err -> failwith (Caqti_error.show err)
+    | Ok None ->
+        Fmt.printf "No FEN embeddings in database. Run ingestion first.\n";
+        Lwt.return_unit
+    | Ok (Some fen_id) ->
+        Fmt.printf "Running %d similarity searches...\n%!" config.retrieval_samples;
+
+        let%lwt () =
+          Lwt_list.iter_s
+            (fun _ ->
+              let%lwt _, elapsed =
+                Timer.time_lwt (fun () ->
+                    let%lwt result = Database.find_similar_fens pool ~fen_id ~limit:10 in
+                    match result with
+                    | Ok _ -> Lwt.return_unit
+                    | Error err -> failwith (Caqti_error.show err))
+              in
+              stats := Stats.add !stats elapsed;
+              Lwt.return_unit)
+            (List.init config.retrieval_samples ~f:(fun i -> i))
+        in
+
+        Stats.print_summary "Similarity Search" !stats;
+        Lwt.return_unit
+
+  let benchmark_batch_listing config =
+    Fmt.printf "\n=== Batch Listing Benchmark ===\n";
+
+    let pool = create_pool config.db_uri in
+    let stats = ref (Stats.create ()) in
+
+    Fmt.printf "Listing batches %d times...\n%!" config.retrieval_samples;
+
+    let%lwt () =
+      Lwt_list.iter_s
+        (fun _ ->
+          let%lwt _, elapsed =
+            Timer.time_lwt (fun () ->
+                let%lwt result = Database.list_batches pool ~limit:20 in
+                match result with
+                | Ok _ -> Lwt.return_unit
+                | Error err -> failwith (Caqti_error.show err))
+          in
+          stats := Stats.add !stats elapsed;
+          Lwt.return_unit)
+        (List.init config.retrieval_samples ~f:(fun i -> i))
+    in
+
+    Stats.print_summary "Batch Listing" !stats;
     Lwt.return_unit
 end
 
@@ -325,7 +530,11 @@ let run_benchmarks config =
   let%lwt () = Ingestion.benchmark_player_upsert config in
   let%lwt () = Ingestion.benchmark_fen_deduplication config in
 
-  let%lwt () = Retrieval.benchmark_all config in
+  let%lwt () = Retrieval.benchmark_game_retrieval config in
+  let%lwt () = Retrieval.benchmark_player_search config in
+  let%lwt () = Retrieval.benchmark_fen_lookup config in
+  let%lwt () = Retrieval.benchmark_similar_search config in
+  let%lwt () = Retrieval.benchmark_batch_listing config in
 
   let total_time = Unix.gettimeofday () -. start_time in
 

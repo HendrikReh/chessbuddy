@@ -251,8 +251,8 @@ let test_embedding_version_lookup () =
             Chessbuddy.Database.get_fen_embedding_version pool ~fen_id
           in
           let version = check_ok "Version lookup failed" version_res in
-          Alcotest.(check (option string)) "Initial version" (Some "ver-1")
-            version;
+          Alcotest.(check (option string))
+            "Initial version" (Some "ver-1") version;
           let%lwt () =
             Chessbuddy.Database.record_embedding pool ~fen_id
               ~embedding:(make_embedding 768 0.7) ~version:"ver-2"
@@ -262,8 +262,8 @@ let test_embedding_version_lookup () =
             Chessbuddy.Database.get_fen_embedding_version pool ~fen_id
           in
           let updated = check_ok "Updated lookup failed" updated_res in
-          Alcotest.(check (option string)) "Updated version" (Some "ver-2")
-            updated;
+          Alcotest.(check (option string))
+            "Updated version" (Some "ver-2") updated;
           Lwt.return_unit))
 
 (* Collect all vector tests *)

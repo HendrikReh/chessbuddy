@@ -28,22 +28,25 @@ let string_array =
   let escape_element element =
     let buf = Stdlib.Buffer.create (String.length element) in
     String.iter element ~f:(fun ch ->
-        (match ch with '"' | '\\' -> Stdlib.Buffer.add_char buf '\\' | _ -> ());
+        (match ch with
+        | '"' | '\\' -> Stdlib.Buffer.add_char buf '\\'
+        | _ -> ());
         Stdlib.Buffer.add_char buf ch);
     Stdlib.Buffer.contents buf
   in
   let encode arr =
     let elements =
-      arr
-      |> Array.to_list
+      arr |> Array.to_list
       |> List.map ~f:(fun element -> "\"" ^ escape_element element ^ "\"")
     in
     Ok ("{" ^ String.concat ~sep:"," elements ^ "}")
   in
   let decode str =
     let len = String.length str in
-    if len < 2 || not (Char.equal (String.get str 0) '{')
-       || not (Char.equal (String.get str (len - 1)) '}')
+    if
+      len < 2
+      || (not (Char.equal (String.get str 0) '{'))
+      || not (Char.equal (String.get str (len - 1)) '}')
     then Ok (Array.of_list [ str ])
     else
       let content = String.sub str ~pos:1 ~len:(len - 2) in
@@ -51,7 +54,7 @@ let string_array =
       let add_current value_started acc =
         let value = Stdlib.Buffer.contents buf in
         Stdlib.Buffer.clear buf;
-        if not value_started && String.is_empty value then acc
+        if (not value_started) && String.is_empty value then acc
         else value :: acc
       in
       let rec loop i in_quotes escaped value_started acc =
@@ -68,13 +71,13 @@ let string_array =
           if escaped then (
             Stdlib.Buffer.add_char buf ch;
             loop (i + 1) in_quotes false true acc)
-          else if in_quotes then
+          else if in_quotes then (
             match ch with
             | '"' -> loop (i + 1) false false true acc
             | '\\' -> loop (i + 1) true true value_started acc
             | _ ->
                 Stdlib.Buffer.add_char buf ch;
-                loop (i + 1) true false true acc
+                loop (i + 1) true false true acc)
           else
             match ch with
             | '"' -> loop (i + 1) true false true acc
@@ -97,13 +100,15 @@ let float_array =
   in
   let decode str =
     let trimmed = String.strip str in
-    if String.length trimmed < 2
-       || not (Char.equal (String.get trimmed 0) '[')
-       || not (Char.equal (String.get trimmed (String.length trimmed - 1)) ']')
+    if
+      String.length trimmed < 2
+      || (not (Char.equal (String.get trimmed 0) '['))
+      || not (Char.equal (String.get trimmed (String.length trimmed - 1)) ']')
     then Error "Invalid vector literal"
     else
       let inner =
-        String.sub trimmed ~pos:1 ~len:(String.length trimmed - 2) |> String.strip
+        String.sub trimmed ~pos:1 ~len:(String.length trimmed - 2)
+        |> String.strip
       in
       if String.is_empty inner then Ok [||]
       else
@@ -111,8 +116,8 @@ let float_array =
           let value = String.strip part in
           if String.is_empty value then Error "Empty vector component"
           else
-            try Ok (Float.of_string value) with
-            | Stdlib.Failure _ -> Error ("Invalid float: " ^ value)
+            try Ok (Float.of_string value)
+            with Stdlib.Failure _ -> Error ("Invalid float: " ^ value)
         in
         let rec collect acc = function
           | [] -> Ok (Array.of_list (List.rev acc))
@@ -580,8 +585,8 @@ let get_embedding_version_query =
 let position_motifs_query =
   let open Caqti_request.Infix in
   (Caqti_type.(t2 uuid int) -->? string_array)
-  @:-
-       "SELECT motif_flags FROM games_positions WHERE game_id = ? AND ply_number = ?"
+  @:- "SELECT motif_flags FROM games_positions WHERE game_id = ? AND \
+       ply_number = ?"
 
 let similar_fens_query =
   let open Caqti_request.Infix in

@@ -83,20 +83,22 @@ let build_header headers =
   }
 
 let sanitize_utf8 str =
-  let buf = Stdlib.Buffer.create (String.length str) in
   let decoder = Uutf.decoder ~encoding:`UTF_8 (`String str) in
-  let rec loop () =
+  let rec has_malformed () =
     match Uutf.decode decoder with
-    | `Uchar uchar ->
-        let code = Uchar.to_int uchar in
-        if code >= 32 || code = 9 || code = 10 || code = 13 then
-          Uutf.Buffer.add_utf_8 buf uchar;
-        loop ()
-    | `Malformed _ -> loop ()
-    | `Await -> loop ()
-    | `End -> Stdlib.Buffer.contents buf
+    | `Uchar _ -> has_malformed ()
+    | `End -> false
+    | `Await -> has_malformed ()
+    | `Malformed _ -> true
   in
-  loop ()
+  if not (has_malformed ()) then str
+  else
+    let buf = Stdlib.Buffer.create (String.length str) in
+    String.iter str ~f:(fun c ->
+        let code = Char.to_int c in
+        if (code >= 32 && code < 127) || code = 9 || code = 10 || code = 13 then
+          Stdlib.Buffer.add_char buf c);
+    Stdlib.Buffer.contents buf
 
 let parse_moves lines =
   let text = String.concat ~sep:"\n" lines in

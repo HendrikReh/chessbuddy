@@ -215,7 +215,8 @@ let test_record_position_motifs () =
           in
           let%lwt fen_id =
             Chessbuddy.Database.upsert_fen pool
-              ~fen_text:"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
+              ~fen_text:
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
               ~side_to_move:'b' ~castling:"KQkq" ~en_passant:None
               ~material_signature:"placeholder"
             >|= check_ok "FEN upsert failed"
@@ -254,8 +255,7 @@ let test_record_position_motifs () =
           | None -> Alcotest.fail "Expected stored motifs"
           | Some motifs ->
               Alcotest.(check (list string))
-                "Motifs preserved" [ "fork"; "pin" ]
-                (Array.to_list motifs));
+                "Motifs preserved" [ "fork"; "pin" ] (Array.to_list motifs));
           Lwt.return_unit))
 
 (* Collect all database tests *)

@@ -75,6 +75,13 @@ docs:
 
 ## Architecture Overview
 
+> **📐 For comprehensive architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md)**
+>
+> This includes: system design, module organization, data flow diagrams, database schema,
+> key design decisions, extension points, and performance characteristics.
+
+**Quick Summary:**
+
 Chessbuddy ingests PGN archives, normalizes player and game data, and persists
 search-ready artifacts in PostgreSQL with pgvector. The diagram below maps the
 primary modules and how data flows between them during a typical ingestion run.

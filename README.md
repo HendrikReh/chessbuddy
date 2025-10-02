@@ -113,7 +113,8 @@ dune build @doc
 ### Developer Guides
 
 - **[Architecture](docs/ARCHITECTURE.md)** - System design, data flow, module organization, and key decisions
-- **[Developer Guide](docs/DEVELOPER.md)** - Setup, testing, CLI usage, and operational procedures
+- **[Developer Guide](docs/DEVELOPER.md)** - Setup, testing, CLI usage
+- **[Operations Guide](docs/OPERATIONS.md)** - Monitoring, troubleshooting, performance tuning, and disaster recovery
 - **[Contribution Guidelines](docs/GUIDELINES.md)** - Coding standards, commit conventions, and workflow
 
 ## Development guidelines

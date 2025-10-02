@@ -585,6 +585,7 @@ SELECT * FROM pg_extension WHERE extname IN ('uuid-ossp', 'vector', 'pgcrypto');
 ## See Also
 
 - [Developer Guide](DEVELOPER.md) - Setup, testing, CLI usage
+- [Operations Guide](OPERATIONS.md) - Monitoring, troubleshooting, performance tuning
 - [Guidelines](GUIDELINES.md) - Coding standards and conventions
 - [API Documentation](../lib/) - Module interfaces (.mli files)
 - [Release Notes](../RELEASE_NOTES.md) - Version history and migrations

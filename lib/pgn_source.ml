@@ -1,9 +1,9 @@
 (** PGN parser implementation.
 
     See {!module:Pgn_source} for public API documentation. This parser handles
-    multi-game PGN files, preserves all move annotations, and generates placeholder
-    FENs with accurate metadata. It uses a stateful scanner to detect game boundaries
-    and build structured game records. *)
+    multi-game PGN files, preserves all move annotations, and generates
+    placeholder FENs with accurate metadata. It uses a stateful scanner to
+    detect game boundaries and build structured game records. *)
 
 open! Base
 

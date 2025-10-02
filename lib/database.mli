@@ -16,26 +16,29 @@ module Pool : sig
   val create :
     ?max_size:int ->
     Uri.t ->
-    ((Caqti_lwt.connection, [> Caqti_error.connect ]) Caqti_lwt_unix.Pool.t,
-     [> Caqti_error.load ])
+    ( (Caqti_lwt.connection, [> Caqti_error.connect ]) Caqti_lwt_unix.Pool.t,
+      [> Caqti_error.load ] )
     Result.t
-  (** [create ?max_size uri] creates a connection pool for the given database URI.
+  (** [create ?max_size uri] creates a connection pool for the given database
+      URI.
 
       @param max_size Maximum concurrent connections (default: 10)
-      @param uri PostgreSQL connection string (e.g., [postgresql://user:pass@host/db])
+      @param uri
+        PostgreSQL connection string (e.g., [postgresql://user:pass@host/db])
 
       Example:
       {[
-        let pool = Pool.create ~max_size:20
-          (Uri.of_string "postgresql://chess:chess@localhost:5433/chessbuddy")
+        let pool =
+          Pool.create ~max_size:20
+            (Uri.of_string "postgresql://chess:chess@localhost:5433/chessbuddy")
       ]} *)
 
   val use :
     t ->
     ((module Caqti_lwt.CONNECTION) -> ('a, Caqti_error.t) Result.t Lwt.t) ->
     ('a, Caqti_error.t) Result.t Lwt.t
-  (** [use pool f] executes [f] with a connection from the pool.
-      The connection is automatically returned to the pool after use. *)
+  (** [use pool f] executes [f] with a connection from the pool. The connection
+      is automatically returned to the pool after use. *)
 end
 
 (** {1 Type Definitions}
@@ -140,7 +143,8 @@ val or_fail : ('a, Caqti_error.t) Result.t -> 'a Lwt.t
 (** {1 Player Management} *)
 
 val normalize_name : string -> string
-(** [normalize_name name] converts to lowercase and strips whitespace for matching *)
+(** [normalize_name name] converts to lowercase and strips whitespace for
+    matching *)
 
 val upsert_player :
   Pool.t ->
@@ -150,7 +154,8 @@ val upsert_player :
 (** [upsert_player pool ~full_name ~fide_id] inserts or updates a player.
 
     - If [fide_id] is provided: matches by FIDE ID, updates name if changed
-    - If [fide_id] is [None]: matches by normalized name, uses [ON CONFLICT] to handle duplicates
+    - If [fide_id] is [None]: matches by normalized name, uses [ON CONFLICT] to
+      handle duplicates
 
     Returns: Player UUID *)
 
@@ -162,7 +167,8 @@ val record_rating :
   ?rapid:int ->
   unit ->
   (unit, Caqti_error.t) Result.t Lwt.t
-(** [record_rating pool ~player_id ~date ?standard ?rapid ()] stores a rating snapshot.
+(** [record_rating pool ~player_id ~date ?standard ?rapid ()] stores a rating
+    snapshot.
 
     Uses [ON CONFLICT] to update existing ratings for the same date. *)
 
@@ -177,10 +183,10 @@ val search_players :
 
 (** {1 Batch Management} *)
 
-val ensure_ingestion_batches :
-  Pool.t -> (unit, Caqti_error.t) Result.t Lwt.t
-(** [ensure_ingestion_batches pool] creates the [ingestion_batches] table if missing.
-    Adds migration columns/indexes as needed. Safe to call multiple times. *)
+val ensure_ingestion_batches : Pool.t -> (unit, Caqti_error.t) Result.t Lwt.t
+(** [ensure_ingestion_batches pool] creates the [ingestion_batches] table if
+    missing. Adds migration columns/indexes as needed. Safe to call multiple
+    times. *)
 
 val create_batch :
   Pool.t ->
@@ -190,8 +196,8 @@ val create_batch :
   (Uuidm.t, Caqti_error.t) Result.t Lwt.t
 (** [create_batch pool ~source_path ~label ~checksum] inserts a new batch.
 
-    Uses [ON CONFLICT (checksum)] to prevent duplicate ingestion.
-    Returns existing batch_id if checksum matches. *)
+    Uses [ON CONFLICT (checksum)] to prevent duplicate ingestion. Returns
+    existing batch_id if checksum matches. *)
 
 val list_batches :
   Pool.t -> limit:int -> (batch_overview list, Caqti_error.t) Result.t Lwt.t
@@ -202,13 +208,15 @@ val find_batches_by_label :
   label:string ->
   limit:int ->
   (batch_overview list, Caqti_error.t) Result.t Lwt.t
-(** [find_batches_by_label pool ~label ~limit] searches batches by label substring *)
+(** [find_batches_by_label pool ~label ~limit] searches batches by label
+    substring *)
 
 val get_batch_summary :
   Pool.t ->
   batch_id:Uuidm.t ->
   (batch_summary option, Caqti_error.t) Result.t Lwt.t
-(** [get_batch_summary pool ~batch_id] computes aggregate statistics for a batch *)
+(** [get_batch_summary pool ~batch_id] computes aggregate statistics for a batch
+*)
 
 (** {1 Game Management} *)
 
@@ -220,16 +228,18 @@ val record_game :
   source_pgn:string ->
   batch_id:Uuidm.t ->
   (Uuidm.t, Caqti_error.t) Result.t Lwt.t
-(** [record_game pool ~white_id ~black_id ~header ~source_pgn ~batch_id] stores a game.
+(** [record_game pool ~white_id ~black_id ~header ~source_pgn ~batch_id] stores
+    a game.
 
-    Deduplicates using: [(white_id, black_id, game_date, round, pgn_hash)]
-    The PGN hash prevents index size issues with large game texts. *)
+    Deduplicates using: [(white_id, black_id, game_date, round, pgn_hash)] The
+    PGN hash prevents index size issues with large game texts. *)
 
 val get_game_detail :
   Pool.t ->
   game_id:Uuidm.t ->
   (game_detail option, Caqti_error.t) Result.t Lwt.t
-(** [get_game_detail pool ~game_id] retrieves full game metadata with move count *)
+(** [get_game_detail pool ~game_id] retrieves full game metadata with move count
+*)
 
 val list_games :
   Pool.t ->
@@ -248,10 +258,11 @@ val upsert_fen :
   en_passant:string option ->
   material_signature:string ->
   (Uuidm.t, Caqti_error.t) Result.t Lwt.t
-(** [upsert_fen pool ~fen_text ~side_to_move ~castling ~en_passant ~material_signature]
-    inserts or retrieves a FEN position.
+(** [upsert_fen pool ~fen_text ~side_to_move ~castling ~en_passant
+     ~material_signature] inserts or retrieves a FEN position.
 
-    Deduplicates by [fen_text] using [ON CONFLICT]. Returns existing [fen_id] if present. *)
+    Deduplicates by [fen_text] using [ON CONFLICT]. Returns existing [fen_id] if
+    present. *)
 
 val record_position :
   Pool.t ->
@@ -260,20 +271,19 @@ val record_position :
   fen_id:Uuidm.t ->
   side_to_move:char ->
   (unit, Caqti_error.t) Result.t Lwt.t
-(** [record_position pool ~game_id ~move ~fen_id ~side_to_move] stores a move in [games_positions].
+(** [record_position pool ~game_id ~move ~fen_id ~side_to_move] stores a move in
+    [games_positions].
 
-    Links to both game and FEN, preserving SAN, UCI, evaluations, and motif flags. *)
+    Links to both game and FEN, preserving SAN, UCI, evaluations, and motif
+    flags. *)
 
 val get_fen_details :
-  Pool.t ->
-  fen_id:Uuidm.t ->
-  (fen_info option, Caqti_error.t) Result.t Lwt.t
-(** [get_fen_details pool ~fen_id] retrieves FEN metadata, embedding status, and usage count *)
+  Pool.t -> fen_id:Uuidm.t -> (fen_info option, Caqti_error.t) Result.t Lwt.t
+(** [get_fen_details pool ~fen_id] retrieves FEN metadata, embedding status, and
+    usage count *)
 
 val get_fen_by_text :
-  Pool.t ->
-  fen_text:string ->
-  (fen_info option, Caqti_error.t) Result.t Lwt.t
+  Pool.t -> fen_text:string -> (fen_info option, Caqti_error.t) Result.t Lwt.t
 (** [get_fen_by_text pool ~fen_text] looks up FEN by exact text match *)
 
 val get_position_motifs :
@@ -281,7 +291,8 @@ val get_position_motifs :
   game_id:Uuidm.t ->
   ply_number:int ->
   (string array option, Caqti_error.t) Result.t Lwt.t
-(** [get_position_motifs pool ~game_id ~ply_number] retrieves tactical motif flags for a move *)
+(** [get_position_motifs pool ~game_id ~ply_number] retrieves tactical motif
+    flags for a move *)
 
 (** {1 Embedding Management} *)
 
@@ -291,17 +302,17 @@ val record_embedding :
   embedding:float array ->
   version:string ->
   (unit, Caqti_error.t) Result.t Lwt.t
-(** [record_embedding pool ~fen_id ~embedding ~version] stores a 768-dimensional vector.
+(** [record_embedding pool ~fen_id ~embedding ~version] stores a 768-dimensional
+    vector.
 
     Uses [ON CONFLICT] to update existing embeddings (last write wins).
 
     Raises: Constraint violation if embedding dimension ≠ 768 *)
 
 val get_fen_embedding_version :
-  Pool.t ->
-  fen_id:Uuidm.t ->
-  (string option, Caqti_error.t) Result.t Lwt.t
-(** [get_fen_embedding_version pool ~fen_id] retrieves the embedding model version *)
+  Pool.t -> fen_id:Uuidm.t -> (string option, Caqti_error.t) Result.t Lwt.t
+(** [get_fen_embedding_version pool ~fen_id] retrieves the embedding model
+    version *)
 
 val find_similar_fens :
   Pool.t ->
@@ -310,15 +321,15 @@ val find_similar_fens :
   (fen_similarity list, Caqti_error.t) Result.t Lwt.t
 (** [find_similar_fens pool ~fen_id ~limit] performs vector similarity search.
 
-    Uses cosine distance ([<=>]) operator from pgvector.
-    Results ordered by distance (ascending). *)
+    Uses cosine distance ([<=>]) operator from pgvector. Results ordered by
+    distance (ascending). *)
 
 (** {1 Natural Language Search} *)
 
-val ensure_search_documents :
-  Pool.t -> (unit, Caqti_error.t) Result.t Lwt.t
-(** [ensure_search_documents pool] creates the [search_documents] table and indexes.
-    Handles 768→1536 dimension migration. Safe to call multiple times. *)
+val ensure_search_documents : Pool.t -> (unit, Caqti_error.t) Result.t Lwt.t
+(** [ensure_search_documents pool] creates the [search_documents] table and
+    indexes. Handles 768→1536 dimension migration. Safe to call multiple times.
+*)
 
 val upsert_search_document :
   Pool.t ->
@@ -328,8 +339,8 @@ val upsert_search_document :
   embedding:float array ->
   model:string ->
   (unit, Caqti_error.t) Result.t Lwt.t
-(** [upsert_search_document pool ~entity_type ~entity_id ~content ~embedding ~model]
-    indexes text for natural language search.
+(** [upsert_search_document pool ~entity_type ~entity_id ~content ~embedding
+     ~model] indexes text for natural language search.
 
     Updates [updated_at] timestamp on conflict. *)
 
@@ -339,10 +350,11 @@ val search_documents :
   entity_types:string array ->
   limit:int ->
   (search_hit list, Caqti_error.t) Result.t Lwt.t
-(** [search_documents pool ~query_embedding ~entity_types ~limit] performs hybrid search.
+(** [search_documents pool ~query_embedding ~entity_types ~limit] performs
+    hybrid search.
 
-    Filters by entity types and ranks by cosine similarity.
-    Score normalized to [0.0, 1.0] range using [1.0 / (1.0 + distance)]. *)
+    Filters by entity types and ranks by cosine similarity. Score normalized to
+    [0.0, 1.0] range using [1.0 / (1.0 + distance)]. *)
 
 (** {1 Health Checks} *)
 
@@ -350,8 +362,10 @@ val health_check :
   ?extensions:string list ->
   Pool.t ->
   (health_report, Caqti_error.t) Result.t Lwt.t
-(** [health_check ?extensions pool] verifies database connectivity and requirements.
+(** [health_check ?extensions pool] verifies database connectivity and
+    requirements.
 
-    @param extensions Extensions to check (default: ["vector"; "pgcrypto"; "uuid-ossp"])
+    @param extensions
+      Extensions to check (default: ["vector"; "pgcrypto"; "uuid-ossp"])
 
     Returns server version, database name, and extension availability status. *)

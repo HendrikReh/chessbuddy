@@ -1,13 +1,18 @@
 (** Text indexing for natural language search.
 
-    This module converts chess entities (games, players, FENs, batches, embeddings)
-    into searchable text documents with 1536-dimensional embeddings. It handles text
-    summarization, truncation, and persistence to the search_documents table. *)
+    This module converts chess entities (games, players, FENs, batches,
+    embeddings) into searchable text documents with 1536-dimensional embeddings.
+    It handles text summarization, truncation, and persistence to the
+    search_documents table. *)
 
 open! Base
 
 (** {1 Text Embedder Interface} *)
 
+(** Text embedder interface for 1536D vectors.
+
+    Implementations may use OpenAI's API, local models, or stubs for testing.
+    See {!Search_embedder} for concrete implementations. *)
 module type TEXT_EMBEDDER = sig
   val model : string
   (** Model identifier (e.g., ["text-embedding-3-small"], ["stub-v1"]) *)
@@ -19,12 +24,9 @@ module type TEXT_EMBEDDER = sig
       - [Ok embedding] with float array of dimension 1536
       - [Error message] on API failures or invalid input
 
-      The embedding should be deterministic for the same text and model version. *)
+      The embedding should be deterministic for the same text and model version.
+  *)
 end
-(** Text embedder interface for 1536D vectors.
-
-    Implementations may use OpenAI's API, local models, or stubs for testing.
-    See {!Search_embedder} for concrete implementations. *)
 
 (** {1 Entity Type Constants} *)
 
@@ -46,7 +48,8 @@ val entity_type_embedding : string
 (** {1 Table Management} *)
 
 val ensure_tables : Database.Pool.t -> unit Lwt.t
-(** [ensure_tables pool] creates the [search_documents] table and indexes if missing.
+(** [ensure_tables pool] creates the [search_documents] table and indexes if
+    missing.
 
     Safe to call multiple times. Handles schema migrations transparently.
 
@@ -101,8 +104,8 @@ val summarize_fen :
   en_passant:string option ->
   material_signature:string ->
   string
-(** [summarize_fen ~fen_text ~side_to_move ~castling ~en_passant ~material_signature]
-    creates FEN description.
+(** [summarize_fen ~fen_text ~side_to_move ~castling ~en_passant
+     ~material_signature] creates FEN description.
 
     Example:
     {v
@@ -148,8 +151,8 @@ val index_game :
   source_path:string ->
   embedder:(module TEXT_EMBEDDER) option ->
   unit Lwt.t
-(** [index_game pool ~game_id ~game ~batch_label ~source_path ~embedder]
-    indexes a game for search.
+(** [index_game pool ~game_id ~game ~batch_label ~source_path ~embedder] indexes
+    a game for search.
 
     If [embedder] is [None], skips indexing (used when search is disabled).
     Otherwise generates summary, embeds it, and persists to [search_documents].
@@ -175,7 +178,8 @@ val index_player :
   fide_id:string option ->
   embedder:(module TEXT_EMBEDDER) option ->
   unit Lwt.t
-(** [index_player pool ~player_id ~name ~fide_id ~embedder] indexes a player for search. *)
+(** [index_player pool ~player_id ~name ~fide_id ~embedder] indexes a player for
+    search. *)
 
 val index_batch :
   Database.Pool.t ->
@@ -198,7 +202,8 @@ val index_embedding :
   version:string ->
   embedder:(module TEXT_EMBEDDER) option ->
   unit Lwt.t
-(** [index_embedding pool ~fen_id ... ~version ~embedder] indexes a FEN embedding
-    for search.
+(** [index_embedding pool ~fen_id ... ~version ~embedder] indexes a FEN
+    embedding for search.
 
-    Creates searchable text combining FEN description with embedding model version. *)
+    Creates searchable text combining FEN description with embedding model
+    version. *)

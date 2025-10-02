@@ -1,8 +1,8 @@
 (** Database persistence layer implementation.
 
-    See {!module:Database} for public API documentation. This module uses Caqti 2.x
-    for type-safe database queries and custom encoders for PostgreSQL-specific types
-    (UUIDs, arrays, pgvector). *)
+    See {!module:Database} for public API documentation. This module uses Caqti
+    2.x for type-safe database queries and custom encoders for
+    PostgreSQL-specific types (UUIDs, arrays, pgvector). *)
 
 open! Base
 

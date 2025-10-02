@@ -1,8 +1,8 @@
 (** FEN position embedders for semantic search.
 
-    This module provides implementations of the {!PROVIDER} signature for converting
-    FEN strings to 768-dimensional vectors. Embeddings enable position similarity search
-    via pgvector cosine distance.
+    This module provides implementations of the {!PROVIDER} signature for
+    converting FEN strings to 768-dimensional vectors. Embeddings enable
+    position similarity search via pgvector cosine distance.
 
     {1 Module Signatures} *)
 
@@ -13,7 +13,8 @@ module type PROVIDER = Ingestion_pipeline.EMBEDDER
 
     Embedders must implement:
     - [version : string] - Model version identifier for cache invalidation
-    - [embed : fen:string -> float array Lwt.t] - FEN → 768D vector conversion *)
+    - [embed : fen:string -> float array Lwt.t] - FEN → 768D vector conversion
+*)
 
 (** {1 Implementations} *)
 

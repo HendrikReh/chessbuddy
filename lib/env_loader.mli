@@ -1,7 +1,8 @@
 (** Environment variable loader with .env file support.
 
-    This module provides unified access to configuration from environment variables
-    and .env files. Environment variables take precedence over .env file values. *)
+    This module provides unified access to configuration from environment
+    variables and .env files. Environment variables take precedence over .env
+    file values. *)
 
 open! Base
 
@@ -10,9 +11,8 @@ open! Base
 val lookup : ?path:string -> string -> string option
 (** [lookup ?path key] retrieves a configuration value.
 
-    Lookup order:
-    1. System environment variable (via [Sys.getenv])
-    2. .env file at [path] (defaults to [".env"])
+    Lookup order: 1. System environment variable (via [Sys.getenv]) 2. .env file
+    at [path] (defaults to [".env"])
 
     @param path Path to .env file (default: [".env"])
     @param key Environment variable name
@@ -39,7 +39,8 @@ val lookup : ?path:string -> string -> string option
     v}
 
     The .env file is only read when the environment variable is not set,
-    providing local development overrides without modifying system environment. *)
+    providing local development overrides without modifying system environment.
+*)
 
 (** {1 .env File Parsing} *)
 
@@ -59,8 +60,7 @@ val read_env_file : string -> (string * string) list
     Example:
     {[
       let pairs = Env_loader.read_env_file ".env.production" in
-      List.iter pairs ~f:(fun (k, v) ->
-        Printf.printf "%s = %s\n" k v)
+      List.iter pairs ~f:(fun (k, v) -> Printf.printf "%s = %s\n" k v)
     ]}
 
     Returns empty list if file doesn't exist. *)

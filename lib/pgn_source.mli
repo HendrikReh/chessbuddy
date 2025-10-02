@@ -1,9 +1,9 @@
 (** PGN (Portable Game Notation) parser for chess games.
 
-    This module streams games from PGN files, extracting headers (players, event,
-    date, ECO codes) and moves (SAN notation, comments, variations, NAGs). It handles
-    multi-game files, UTF-8 sanitization, and preserves all annotations for downstream
-    analysis.
+    This module streams games from PGN files, extracting headers (players,
+    event, date, ECO codes) and moves (SAN notation, comments, variations,
+    NAGs). It handles multi-game files, UTF-8 sanitization, and preserves all
+    annotations for downstream analysis.
 
     {1 Core Functions} *)
 
@@ -19,7 +19,8 @@ val fold_games :
 
     The parser:
     - Detects game boundaries by tracking header vs. move context
-    - Preserves move annotations (comments [{text}], variations [(...)], NAGs [$n])
+    - Preserves move annotations (comments [{text}], variations [(...)], NAGs
+      [$n])
     - Generates placeholder FENs with accurate side-to-move and move numbers
     - Sanitizes malformed UTF-8 to ASCII-safe characters
 
@@ -27,7 +28,7 @@ val fold_games :
     {[
       let%lwt count =
         fold_games "games.pgn" ~init:0 ~f:(fun acc _game ->
-          Lwt.return (acc + 1))
+            Lwt.return (acc + 1))
       in
       Printf.printf "Parsed %d games\n" count
     ]}
@@ -44,8 +45,8 @@ type header_map
 val parse_headers : string list -> header_map
 (** [parse_headers lines] extracts PGN header tags into a map.
 
-    Each line should match [[Tag "Value"]] format.
-    Returns normalized (lowercase) keys mapping to raw values.
+    Each line should match [[Tag "Value"]] format. Returns normalized
+    (lowercase) keys mapping to raw values.
 
     Example:
     {[
@@ -107,8 +108,8 @@ val sanitize_utf8 : string -> string
 val parse_date : string -> Ptime.t option
 (** [parse_date str] converts PGN date format to [Ptime.t].
 
-    Accepts: [YYYY.MM.DD] (e.g., ["2024.01.15"])
-    Returns: [None] if format is invalid or uses [?] placeholders *)
+    Accepts: [YYYY.MM.DD] (e.g., ["2024.01.15"]) Returns: [None] if format is
+    invalid or uses [?] placeholders *)
 
 (** {1 Internal Helpers}
 
@@ -125,10 +126,12 @@ val required : header_map -> string -> string
     Raises: [Failure] if key is missing *)
 
 val starts_with : string -> int -> string -> bool
-(** [starts_with str idx prefix] checks if [str] has [prefix] at position [idx] *)
+(** [starts_with str idx prefix] checks if [str] has [prefix] at position [idx]
+*)
 
 val string_has : (char -> bool) -> string -> bool
-(** [string_has predicate str] returns [true] if any character satisfies [predicate] *)
+(** [string_has predicate str] returns [true] if any character satisfies
+    [predicate] *)
 
 val sanitize : string -> string
 (** [sanitize value] normalizes to lowercase and strips whitespace *)
@@ -136,7 +139,8 @@ val sanitize : string -> string
 module Default : Ingestion_pipeline.PGN_SOURCE
 (** Default PGN source implementation.
 
-    Implements the {!Ingestion_pipeline.PGN_SOURCE} interface with full support for:
+    Implements the {!Ingestion_pipeline.PGN_SOURCE} interface with full support
+    for:
     - Multi-game PGN files
     - UTF-8 sanitization
     - Move annotations (comments, variations, NAGs)

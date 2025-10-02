@@ -1,8 +1,9 @@
 (** Text embedder implementations for search.
 
-    This module provides concrete implementations of the {!Search_indexer.TEXT_EMBEDDER}
-    interface for converting text to 1536-dimensional vectors. Currently supports
-    OpenAI's text-embedding models. *)
+    This module provides concrete implementations of the
+    {!Search_indexer.TEXT_EMBEDDER} interface for converting text to
+    1536-dimensional vectors. Currently supports OpenAI's text-embedding models.
+*)
 
 open! Base
 
@@ -11,10 +12,22 @@ module type PROVIDER = Search_indexer.TEXT_EMBEDDER
 
     Embedders must provide:
     - [model : string] - Model identifier for versioning
-    - [embed : text:string -> (float array, string) Result.t Lwt.t] - Text → 1536D vector *)
+    - [embed : text:string -> (float array, string) Result.t Lwt.t] - Text →
+      1536D vector *)
 
 (** {1 Implementations} *)
 
+(** OpenAI text embedding provider.
+
+    Uses the OpenAI API to generate 1536-dimensional embeddings via the
+    text-embedding-3-small model (or custom model if specified).
+
+    Requires:
+    - Valid OpenAI API key
+    - Internet connectivity
+    - Rate limiting compliance (handled internally by {!Openai_client})
+
+    See {!Openai_client} for low-level API details. *)
 module Openai : sig
   val make :
     ?api_key:string ->
@@ -43,14 +56,3 @@ module Openai : sig
       The returned module implements {!Search_indexer.TEXT_EMBEDDER} and can be
       passed to indexing functions in {!Search_indexer}. *)
 end
-(** OpenAI text embedding provider.
-
-    Uses the OpenAI API to generate 1536-dimensional embeddings via the
-    text-embedding-3-small model (or custom model if specified).
-
-    Requires:
-    - Valid OpenAI API key
-    - Internet connectivity
-    - Rate limiting compliance (handled internally by {!Openai_client})
-
-    See {!Openai_client} for low-level API details. *)

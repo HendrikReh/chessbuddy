@@ -8,7 +8,8 @@
   test_pgn_source
   test_search_service
   test_retrieve_cli
-  test_ingest_cli)
+  test_ingest_cli
+  test_chess_engine)
  (libraries
   chessbuddy.core
   chessbuddy.retrieve_cli

@@ -133,14 +133,16 @@ module Ingestion = struct
       ~finally:(fun () -> Stdlib.close_out_noerr oc)
       ~f:(fun () ->
         for i = 1 to num_games do
+          let white_fide = 100000 + i in
+          let black_fide = 200000 + i in
           Fmt.fprintf
             (Stdlib.Format.formatter_of_out_channel oc)
             {|[Event "Benchmark Game %d"]
 [Site "Test"]
 [Date "2024.01.01"]
 [Round "1"]
-[White "Player A"]
-[Black "Player B"]
+[White "White Player %d"]
+[Black "Black Player %d"]
 [Result "1-0"]
 [WhiteFideId "%d"]
 [BlackFideId "%d"]
@@ -148,7 +150,7 @@ module Ingestion = struct
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0
 
 |}
-            i (100000 + i) (200000 + i)
+            i white_fide black_fide white_fide black_fide
         done)
 
   let benchmark_full_ingestion config =

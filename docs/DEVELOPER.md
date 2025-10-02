@@ -1,5 +1,78 @@
 # Developer Guide
 
+## API Documentation
+
+### Module Interfaces (.mli files)
+
+All public modules have comprehensive interface files with OCamldoc-compatible documentation:
+
+| Module | Purpose | Key Types |
+|--------|---------|-----------|
+| [database.mli](../lib/database.mli) | PostgreSQL persistence with Caqti 2.x | `Pool.t`, `batch_summary`, `game_detail`, `fen_info` |
+| [ingestion_pipeline.mli](../lib/ingestion_pipeline.mli) | PGN ingestion orchestration | `EMBEDDER`, `PGN_SOURCE`, `inspection_summary` |
+| [pgn_source.mli](../lib/pgn_source.mli) | Chess game notation parser | `header_map`, `Default` module |
+| [search_service.mli](../lib/search_service.mli) | Natural language search | Entity filters, similarity ranking |
+| [embedder.mli](../lib/embedder.mli) | FEN position embedders | `PROVIDER`, `Constant` stub |
+| [fen_generator.mli](../lib/fen_generator.mli) | Position notation generation | Placeholder FEN utilities |
+
+### Generating HTML Documentation
+
+```bash
+# Install dependencies first
+opam install . --deps-only
+
+# Build API docs (requires PostgreSQL libraries available)
+dune build @doc
+
+# View generated docs
+open _build/default/_doc/_html/chessbuddy/index.html
+# Or browse to file:///<project_path>/_build/default/_doc/_html/chessbuddy/index.html
+```
+
+**Note:** Documentation generation requires `libpq` (PostgreSQL client library) to be available via `pkg-config`. On macOS with Homebrew:
+
+```bash
+brew install libpq
+export PKG_CONFIG_PATH="/opt/homebrew/opt/libpq/lib/pkgconfig:$PKG_CONFIG_PATH"
+dune build @doc
+```
+
+### Publishing to GitHub Pages
+
+Add this to `.github/workflows/ci.yml` to automatically publish docs:
+
+```yaml
+docs:
+  name: Build and Deploy Documentation
+  runs-on: ubuntu-latest
+  needs: build
+  if: github.ref == 'refs/heads/main'
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up OCaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: 5.2.x
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpq-dev
+        opam install . --deps-only --yes
+
+    - name: Build documentation
+      run: opam exec -- dune build @doc
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./_build/default/_doc/_html
+        destination_dir: api
+```
+
 ## Architecture Overview
 
 Chessbuddy ingests PGN archives, normalizes player and game data, and persists

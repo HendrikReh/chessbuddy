@@ -1,3 +1,10 @@
+(** PGN parser implementation.
+
+    See {!module:Pgn_source} for public API documentation. This parser handles
+    multi-game PGN files, preserves all move annotations, and generates placeholder
+    FENs with accurate metadata. It uses a stateful scanner to detect game boundaries
+    and build structured game records. *)
+
 open! Base
 
 module String_key = struct
@@ -7,6 +14,8 @@ module String_key = struct
 end
 
 module String_map = Stdlib.Map.Make (String_key)
+
+type header_map = string String_map.t
 
 let sanitize value = value |> String.strip |> String.lowercase
 

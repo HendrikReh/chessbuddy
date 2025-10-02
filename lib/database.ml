@@ -1,6 +1,11 @@
+(** Database persistence layer implementation.
+
+    See {!module:Database} for public API documentation. This module uses Caqti 2.x
+    for type-safe database queries and custom encoders for PostgreSQL-specific types
+    (UUIDs, arrays, pgvector). *)
+
 open! Base
 
-let ( let+ ) = Lwt.map
 let ( let* ) = Lwt.bind
 
 (* Custom UUID type for Caqti 2.x *)

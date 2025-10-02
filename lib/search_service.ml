@@ -1,3 +1,9 @@
+(** Natural language search service implementation.
+
+    See {!module:Search_service} for public API documentation. This module validates
+    entity type filters, embeds query text, and executes vector similarity search
+    across indexed chess entities. *)
+
 open! Base
 open Lwt.Infix
 module Db = Database

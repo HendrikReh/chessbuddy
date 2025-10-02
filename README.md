@@ -90,6 +90,31 @@ The executable streams PGN games, generates placeholder FENs for each position, 
 
 Checksums are computed from the PGN file contents, so re-ingesting an updated file properly records a new batch. Each stored move retains pre/post comments, side-variations, and NAGs, exposing richer annotations alongside the main line.
 
+## Documentation
+
+### API Reference
+
+All public modules have comprehensive `.mli` interface files with OCamldoc-compatible documentation:
+
+- **[Database](lib/database.mli)** - PostgreSQL persistence layer with Caqti 2.x
+- **[Ingestion Pipeline](lib/ingestion_pipeline.mli)** - PGN processing and batch management
+- **[PGN Source](lib/pgn_source.mli)** - Parser for chess game notation
+- **[Search Service](lib/search_service.mli)** - Natural language semantic search
+- **[Embedder](lib/embedder.mli)** - FEN position embedders
+- **[FEN Generator](lib/fen_generator.mli)** - Position notation utilities
+
+**Generate HTML documentation:**
+```bash
+# Requires dependencies installed (opam install . --deps-only)
+dune build @doc
+# View at: _build/default/_doc/_html/chessbuddy/index.html
+```
+
+### Developer Guides
+
+- **[Developer Guide](docs/DEVELOPER.md)** - Architecture, testing, CLI usage, and operational procedures
+- **[Contribution Guidelines](docs/GUIDELINES.md)** - Coding standards, commit conventions, and workflow
+
 ## Development guidelines
 
 - All OCaml modules must `open! Base` (or rely on the Base namespace) and only fall back to `Stdlib.<module>` when Base intentionally lacks an equivalent. This keeps the codebase consistent with Jane Street idioms and avoids mixing prelude semantics.

@@ -19,6 +19,7 @@ Database schema files live in `sql/`, with PGN samples under `data/`. Tests in `
 ## Build, Test, and Development Commands
 - `opam switch create . 5.1.1` (first setup) then `opam install . --deps-only` – prepare the toolchain
 - `dune build` – compile everything; add `@install` to verify installability
+- `dune build @doc` – generate HTML API documentation (requires `libpq` via pkg-config)
 - `dune exec bin/ingest.exe -- --help` – inspect ingestion subcommands
 - `dune exec bin/retrieve.exe -- --help` – inspect retrieval subcommands
 - `dune exec bin/ingest.exe -- --db-uri postgresql://chess:chess@localhost:5433/chessbuddy --pgn data/games/twic1611.pgn --batch-label dev-test` – run a full ingestion
@@ -32,6 +33,16 @@ Database schema files live in `sql/`, with PGN samples under `data/`. Tests in `
 - Prefer descriptive record fields and exhaustive pattern matches
 - Run `dune fmt` (ocamlformat ≥0.27) before committing changes
 - Handle `Lwt_result` branches explicitly to surface database errors
+
+## Documentation Standards
+- **All public modules must have `.mli` interface files** with OCamldoc-compatible documentation
+- Use structured sections: `{1 Module Signatures}`, `{1 Type Definitions}`, `{1 Core Functions}`
+- Document parameters with `@param name description` format
+- Include code examples in docstrings using `{[ ... ]}` blocks
+- Specify exceptions/errors with `Raises:` or `Returns:` notes
+- Add module-level docstrings at the top of implementation files (after `open!` statements)
+- Use `(** ... *)` for public documentation, `(* ... *)` for internal comments
+- Document type invariants and edge cases clearly
 
 ## Testing Guidelines
 - The test suite uses Alcotest_lwt; start PostgreSQL via Docker before running `dune runtest`

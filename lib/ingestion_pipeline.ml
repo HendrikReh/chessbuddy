@@ -1,3 +1,9 @@
+(** Ingestion pipeline implementation.
+
+    See {!module:Ingestion_pipeline} for public API documentation. This module
+    orchestrates PGN parsing, player/game persistence, FEN generation, embedding
+    computation, and search indexing with proper deduplication and error handling. *)
+
 open! Base
 module Db = Database
 

@@ -1,7 +1,7 @@
 # ChessBuddy
 
 [![OCaml](https://img.shields.io/badge/OCaml-%3E%3D%205.1-orange.svg)](https://ocaml.org)
-[![Version](https://img.shields.io/badge/Version-0.0.4-blue.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/Version-0.0.5-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/Status-Proof%20of%20Concept-yellow.svg)](https://github.com/HendrikReh/chessbuddy)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/HendrikReh/chessbuddy/ci.yml?branch=main)](https://github.com/HendrikReh/chessbuddy/actions)
 [![License](https://img.shields.io/github/license/HendrikReh/chessbuddy)](LICENSE)
@@ -99,7 +99,9 @@ All public modules have comprehensive `.mli` interface files with OCamldoc-compa
 - **[Database](lib/database.mli)** - PostgreSQL persistence layer with Caqti 2.x
 - **[Ingestion Pipeline](lib/ingestion_pipeline.mli)** - PGN processing and batch management
 - **[PGN Source](lib/pgn_source.mli)** - Parser for chess game notation
+- **[Chess Engine](lib/chess_engine.mli)** - Lightweight board state tracking and FEN generation
 - **[Search Service](lib/search_service.mli)** - Natural language semantic search
+- **[Search Indexer](lib/search_indexer.mli)** - Text document indexing for semantic search
 - **[Embedder](lib/embedder.mli)** - FEN position embedders
 - **[FEN Generator](lib/fen_generator.mli)** - Position notation utilities
 
@@ -116,6 +118,8 @@ dune build @doc
 - **[Developer Guide](docs/DEVELOPER.md)** - Setup, testing, CLI usage
 - **[Operations Guide](docs/OPERATIONS.md)** - Monitoring, troubleshooting, performance tuning, and disaster recovery
 - **[Contribution Guidelines](docs/GUIDELINES.md)** - Coding standards, commit conventions, and workflow
+- **[Chess Engine Status](docs/CHESS_ENGINE_STATUS.md)** - Implementation status and testing results
+- **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)** - Development roadmap and progress tracking
 
 ## Development guidelines
 
@@ -134,7 +138,7 @@ Use the `chessbuddy-retrieve` executable for read-side workflows:
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
 
-**Note**: Current version (0.0.4) uses placeholder FENs with starting position board state. Full position tracking requires integration with a chess engine library.
+**Note**: Current version (0.0.5) includes a custom chess engine implementation (`lib/chess_engine.ml`) with board state tracking and FEN generation. Integration with the ingestion pipeline is in progress.
 
 ## Testing
 

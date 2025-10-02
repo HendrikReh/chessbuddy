@@ -380,9 +380,9 @@ module Move_parser = struct
                     (* Non-capture: must be on destination file, move 1 or 2 forward *)
                     file = to_file
                     && (to_rank = rank + direction
-                       || (to_rank = rank + (2 * direction)
+                       || to_rank = rank + (2 * direction)
                           && ((phys_equal piece_color White && rank = 1)
-                             || (phys_equal piece_color Black && rank = 6))))
+                             || (phys_equal piece_color Black && rank = 6)))
               | Knight ->
                   (* Knight moves: L-shape (2,1) or (1,2) *)
                   let df = Int.abs (to_file - file) in

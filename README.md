@@ -40,6 +40,17 @@ Benchmarked on [TWIC 1611](https://theweekinchess.com/twic) (4.2MB, 4,875 games)
 - **Players**: 2,047 with 100% FIDE ID coverage
 - **Embeddings**: 301 (one per unique FEN)
 
+**Run performance benchmarks:**
+```bash
+dune exec benchmark/benchmark.exe -- \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --warmup 2 \
+  --runs 5 \
+  --samples 200
+```
+
+See [benchmark/README.md](benchmark/README.md) for detailed benchmark documentation, configuration options, and performance baselines.
+
 ## Getting started
 
 1. Start the database and apply the schema:

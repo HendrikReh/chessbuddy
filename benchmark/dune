@@ -1,0 +1,15 @@
+(executable
+ (name benchmark)
+ (modules benchmark)
+ (libraries
+  base
+  chessbuddy.core
+  lwt
+  lwt.unix
+  unix
+  caqti
+  caqti-lwt
+  caqti-driver-postgresql
+  uri)
+ (preprocess
+  (pps lwt_ppx)))

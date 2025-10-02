@@ -1,5 +1,72 @@
 # Release Notes
 
+## Version 0.0.6 - Performance Benchmarking Suite
+
+### Overview
+Adds comprehensive performance benchmarking tools for measuring ingestion and retrieval operations. Fixes chess engine test failures and player name conflicts. All 54 tests now passing (100% pass rate).
+
+### Major Features
+
+#### Benchmark Suite (`benchmark/benchmark.ml`)
+- **Timer Module**: High-precision Lwt timing utilities with duration formatting
+- **Statistics Module**: Mean, median, min, max, P50/P95/P99 percentiles, throughput
+- **Configurable Runs**: Warmup runs, benchmark runs, sample sizes via CLI flags
+
+**Ingestion Benchmarks:**
+- Full ingestion pipeline (100 games)
+- Player upsert (1000 players with FIDE ID deduplication)
+- FEN deduplication (500 FENs, ON CONFLICT speedup measurement)
+
+**Retrieval Benchmarks:**
+- Game retrieval (fetch by UUID with joins)
+- Player search (fuzzy ILIKE pattern matching)
+- FEN lookup (direct UUID retrieval)
+- Vector similarity search (pgvector cosine similarity, k=10)
+- Batch listing (pagination and ordering)
+
+**Usage:**
+```bash
+dune exec benchmark/benchmark.exe -- \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --warmup 2 --runs 5 --samples 200
+```
+
+**Performance Baselines (Apple M2 Pro):**
+- Full Ingestion: 0.2-0.3 batches/sec (3-5s per 100 games)
+- Player Upsert: 300-500 ops/sec (2-3ms)
+- FEN Dedup: 400-700 ops/sec (1.5-2.5ms for duplicates)
+- Game Retrieval: 100-200 ops/sec (5-10ms)
+- Similarity Search: 50-100 ops/sec (10-15ms)
+
+#### Bug Fixes
+- **Player Name Conflicts**: Generate unique player names per game ("White Player 100001") instead of reusing "Player A"/"Player B", preventing `full_name_key` constraint violations
+- **Chess Engine Tests**: All 16 chess engine tests now passing (fixed board mutation, pawn/knight movement validation, disambiguation logic)
+
+### Documentation Updates
+
+#### New Documentation
+- **benchmark/README.md**: Complete benchmark documentation with usage guide, configuration options, example output, performance baselines, and troubleshooting
+
+#### Updated Documentation
+- **README.md**: Added benchmark quick-start in Performance section, updated version badge to 0.0.6
+- **CLAUDE.md**: Added comprehensive benchmark section with all 8 benchmark suites listed
+- **docs/**: Multiple references updated from 0.0.5 to 0.0.6
+
+### Test Status
+- **Total Tests**: 54 (100% pass rate)
+- **Chess Engine**: 16/16 passing ✅
+- **Database**: 7/7 passing ✅
+- **Retrieval Benchmarks**: Fully implemented ✅
+
+### Breaking Changes
+None - all changes are additive.
+
+### Migration Notes
+- Benchmark tool requires populated database (run ingestion first)
+- Set `PKG_CONFIG_PATH` for libpq when building: `export PKG_CONFIG_PATH="/opt/homebrew/opt/libpq/lib/pkgconfig:$PKG_CONFIG_PATH"`
+
+---
+
 ## Version 0.0.5 - Chess Engine Implementation
 
 ### Overview

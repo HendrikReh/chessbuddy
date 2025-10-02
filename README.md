@@ -1,7 +1,7 @@
 # ChessBuddy
 
 [![OCaml](https://img.shields.io/badge/OCaml-%3E%3D%205.1-orange.svg)](https://ocaml.org)
-[![Version](https://img.shields.io/badge/Version-0.0.5-blue.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/Version-0.0.6-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/Status-Proof%20of%20Concept-yellow.svg)](https://github.com/HendrikReh/chessbuddy)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/HendrikReh/chessbuddy/ci.yml?branch=main)](https://github.com/HendrikReh/chessbuddy/actions)
 [![License](https://img.shields.io/github/license/HendrikReh/chessbuddy)](LICENSE)
@@ -149,7 +149,7 @@ Use the `chessbuddy-retrieve` executable for read-side workflows:
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
 
-**Note**: Current version (0.0.5) includes a custom chess engine implementation (`lib/chess_engine.ml`) with board state tracking and FEN generation. Integration with the ingestion pipeline is in progress.
+**Note**: Current version (0.0.6) includes a custom chess engine implementation (`lib/chess_engine.ml`) with board state tracking and FEN generation, plus comprehensive performance benchmarking tools for measuring ingestion and retrieval operations.
 
 ## Testing
 

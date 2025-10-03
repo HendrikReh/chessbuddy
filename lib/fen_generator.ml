@@ -33,10 +33,25 @@ let initial_state =
 
 (** Detect piece type from SAN notation *)
 let piece_type_from_san san =
-  if String.equal san "O-O" || String.equal san "O-O-O" then Chess_engine.King
-  else if String.length san = 0 then Chess_engine.Pawn
+  let strip_suffixes s =
+    let rec drop len =
+      if len <= 0 then ""
+      else
+        match String.get s (len - 1) with
+        | '+' | '#' | '!' | '?' -> drop (len - 1)
+        | _ -> String.sub s ~pos:0 ~len
+    in
+    drop (String.length s)
+  in
+  let normalized =
+    strip_suffixes san
+    |> String.map ~f:(fun c -> if Char.equal c '0' then 'O' else c)
+  in
+  if String.equal normalized "O-O" || String.equal normalized "O-O-O" then
+    Chess_engine.King
+  else if String.length normalized = 0 then Chess_engine.Pawn
   else
-    let first_char = String.get san 0 in
+    let first_char = String.get normalized 0 in
     if Char.is_uppercase first_char then
       (* Piece move: N, B, R, Q, K *)
       match Chess_engine.piece_of_fen_char first_char with

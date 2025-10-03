@@ -11,7 +11,10 @@ Implements stateful FEN generation using the chess_engine module, replacing plac
 - **Complete Rewrite**: Replaced placeholder FEN generation with stateful position tracking
 - **Game State Type**: Tracks board, castling_rights, en_passant_square, halfmove_clock, fullmove_number
 - **Chess Engine Integration**: Uses `Chess_engine.Move_parser.apply_san` for accurate move application
-- **Piece Type Detection**: Implements `piece_type_from_san` to identify piece moves from SAN notation
+- **Robust Piece Detection**: Implements `piece_type_from_san` with SAN normalization
+  - Strips trailing annotation markers (`+`, `#`, `!`, `?`)
+  - Normalizes zero-based castling (`0-0` → `O-O`, `0-0-0` → `O-O-O`)
+  - Correctly identifies piece type for halfmove clock tracking
 - **Accurate Metadata**: Generates FENs with correct halfmove clock (resets on pawn/captures) and fullmove numbers
 
 **Key Functions:**
@@ -98,11 +101,19 @@ Each FEN correctly shows:
 - **Phase 0.1** (v0.0.6): Coordinate-based castling and en-passant in chess_engine
 - **Phase 0.2** (v0.0.7): Stateful FEN generator integration (this release)
 
+### Bug Fixes
+
+**SAN Normalization in Piece Detection:**
+- Fixed halfmove clock incorrectly incrementing on castling moves (was treating `O-O+` as pawn move)
+- Fixed annotation markers (`!`, `?`, `!!`) breaking piece type detection
+- Handles legacy PGN files using `0-0` notation instead of `O-O`
+
 ### Files Changed
-- `lib/fen_generator.ml` - Complete rewrite (100 lines)
+- `lib/fen_generator.ml` - Complete rewrite with SAN normalization (100 lines)
 - `lib/fen_generator.mli` - New stateful API (44 lines)
 - `lib/pgn_source.ml` - Integrated stateful FEN generation
 - `dune-project` - Version bump to 0.0.7
+- `RELEASE_NOTES.md` - Added v0.0.7 documentation
 
 ---
 

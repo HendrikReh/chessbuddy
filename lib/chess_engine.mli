@@ -87,9 +87,11 @@ module Move_parser : sig
   type move_result = {
     board : Board.t;  (** Updated board position *)
     captured : piece option;  (** Piece captured (if any) *)
-    updates_castling : bool;  (** Whether castling rights should be updated *)
-    creates_en_passant : string option;
-        (** En passant target square (e.g., "e3") if pawn moved two squares *)
+    castling_rights : castling_rights;
+        (** Updated castling rights after move *)
+    en_passant_square : string option;
+        (** En passant target square (e.g., "e3") for next move if pawn moved
+            two squares *)
   }
   (** Result of applying a move, including side effects *)
 
@@ -98,6 +100,7 @@ module Move_parser : sig
     san:string ->
     side_to_move:color ->
     castling_rights:castling_rights ->
+    en_passant_target:string option ->
     (move_result, string) Result.t
   (** Apply Standard Algebraic Notation move to board
 

@@ -221,8 +221,8 @@ module Move_parser = struct
   type move_result = {
     board : Board.t;
     captured : piece option;
-    updates_castling : bool;
-    creates_en_passant : string option;
+    castling_rights : castling_rights;
+    en_passant_square : string option;
   }
 
   (* Parse SAN move notation *)
@@ -419,52 +419,120 @@ module Move_parser = struct
              (to_rank + 1))
     | _ -> Error "Ambiguous move: multiple pieces can move to destination"
 
-  let apply_san board ~san ~side_to_move ~castling_rights:_ =
+  (* Helper: Update castling rights based on move coordinates *)
+  let update_castling_rights ~piece_moved ~from_file ~from_rank ~captured
+      ~to_file ~to_rank ~side_to_move ~castling_rights ~is_castling =
+    let rights = ref castling_rights in
+
+    (* King moves disable both sides for that color *)
+    (match (piece_moved, side_to_move) with
+    | King, White ->
+        rights :=
+          { !rights with white_kingside = false; white_queenside = false }
+    | King, Black ->
+        rights :=
+          { !rights with black_kingside = false; black_queenside = false }
+    | _ -> ());
+
+    (* Rook moves from initial squares disable corresponding castling *)
+    (match (piece_moved, from_file, from_rank, side_to_move) with
+    | Rook, 0, 0, White ->
+        (* a1 *)
+        rights := { !rights with white_queenside = false }
+    | Rook, 7, 0, White ->
+        (* h1 *)
+        rights := { !rights with white_kingside = false }
+    | Rook, 0, 7, Black ->
+        (* a8 *)
+        rights := { !rights with black_queenside = false }
+    | Rook, 7, 7, Black ->
+        (* h8 *)
+        rights := { !rights with black_kingside = false }
+    | _ -> ());
+
+    (* Rook captured on initial square disables corresponding castling *)
+    (match (captured, to_file, to_rank) with
+    | Some Rook, 0, 0 -> rights := { !rights with white_queenside = false }
+    | Some Rook, 7, 0 -> rights := { !rights with white_kingside = false }
+    | Some Rook, 0, 7 -> rights := { !rights with black_queenside = false }
+    | Some Rook, 7, 7 -> rights := { !rights with black_kingside = false }
+    | _ -> ());
+
+    (* Castling move disables both sides for that color *)
+    (if is_castling then
+       match side_to_move with
+       | White ->
+           rights :=
+             { !rights with white_kingside = false; white_queenside = false }
+       | Black ->
+           rights :=
+             { !rights with black_kingside = false; black_queenside = false });
+
+    !rights
+
+  let apply_san board ~san ~side_to_move ~castling_rights ~en_passant_target =
     Result.bind (parse_san san ~side_to_move) ~f:(function
       | `Kingside_castle ->
           let rank = match side_to_move with White -> 0 | Black -> 7 in
-          let _king_from = (4, rank) in
-          let _king_to = (6, rank) in
-          let _rook_from = (7, rank) in
-          let _rook_to = (5, rank) in
+          let king_from_file = 4 in
+          let king_to_file = 6 in
+          let rook_from_file = 7 in
+          let rook_to_file = 5 in
 
-          let board = Board.set board ~file:4 ~rank Empty in
-          let board = Board.set board ~file:7 ~rank Empty in
+          let board = Board.set board ~file:king_from_file ~rank Empty in
+          let board = Board.set board ~file:rook_from_file ~rank Empty in
           let board =
-            Board.set board ~file:6 ~rank
+            Board.set board ~file:king_to_file ~rank
               (Piece { piece_type = King; color = side_to_move })
           in
           let board =
-            Board.set board ~file:5 ~rank
+            Board.set board ~file:rook_to_file ~rank
               (Piece { piece_type = Rook; color = side_to_move })
+          in
+
+          let new_castling =
+            update_castling_rights ~piece_moved:King ~from_file:king_from_file
+              ~from_rank:rank ~captured:None ~to_file:king_to_file ~to_rank:rank
+              ~side_to_move ~castling_rights ~is_castling:true
           in
 
           Ok
             {
               board;
               captured = None;
-              updates_castling = true;
-              creates_en_passant = None;
+              castling_rights = new_castling;
+              en_passant_square = None;
             }
       | `Queenside_castle ->
           let rank = match side_to_move with White -> 0 | Black -> 7 in
-          let board = Board.set board ~file:4 ~rank Empty in
-          let board = Board.set board ~file:0 ~rank Empty in
+          let king_from_file = 4 in
+          let king_to_file = 2 in
+          let rook_from_file = 0 in
+          let rook_to_file = 3 in
+
+          let board = Board.set board ~file:king_from_file ~rank Empty in
+          let board = Board.set board ~file:rook_from_file ~rank Empty in
           let board =
-            Board.set board ~file:2 ~rank
+            Board.set board ~file:king_to_file ~rank
               (Piece { piece_type = King; color = side_to_move })
           in
           let board =
-            Board.set board ~file:3 ~rank
+            Board.set board ~file:rook_to_file ~rank
               (Piece { piece_type = Rook; color = side_to_move })
+          in
+
+          let new_castling =
+            update_castling_rights ~piece_moved:King ~from_file:king_from_file
+              ~from_rank:rank ~captured:None ~to_file:king_to_file ~to_rank:rank
+              ~side_to_move ~castling_rights ~is_castling:true
           in
 
           Ok
             {
               board;
               captured = None;
-              updates_castling = true;
-              creates_en_passant = None;
+              castling_rights = new_castling;
+              en_passant_square = None;
             }
       | `Move
           {
@@ -473,22 +541,69 @@ module Move_parser = struct
             from_rank;
             to_file;
             to_rank;
-            is_capture = _;
+            is_capture;
             promotion;
           } ->
           (* Find source square *)
           Result.bind
             (find_piece board ~piece ~color:side_to_move ~to_file ~to_rank
                ~from_file ~from_rank) ~f:(fun (src_file, src_rank) ->
-              (* Check for capture *)
-              let captured =
-                match Board.get board ~file:to_file ~rank:to_rank with
-                | Piece { piece_type; _ } -> Some piece_type
-                | Empty -> None
+              (* Check if this is en passant capture *)
+              let is_en_passant_capture =
+                phys_equal piece Pawn && is_capture
+                &&
+                match en_passant_target with
+                | Some ep_square -> (
+                    match square_notation_to_indices ep_square with
+                    | Ok (ep_file, ep_rank) ->
+                        to_file = ep_file && to_rank = ep_rank
+                    | Error _ -> false)
+                | None -> false
               in
 
-              (* Check for en passant *)
-              let en_passant_square =
+              (* Apply move with en passant handling *)
+              let board, captured =
+                if is_en_passant_capture then
+                  (* En passant: remove captured pawn from different rank *)
+                  let captured_pawn_rank =
+                    if phys_equal side_to_move White then to_rank - 1
+                    else to_rank + 1
+                  in
+                  let board =
+                    Board.set board ~file:to_file ~rank:captured_pawn_rank Empty
+                  in
+                  let board =
+                    Board.set board ~file:src_file ~rank:src_rank Empty
+                  in
+                  let board =
+                    Board.set board ~file:to_file ~rank:to_rank
+                      (Piece { piece_type = Pawn; color = side_to_move })
+                  in
+                  (board, Some Pawn)
+                else
+                  (* Normal move/capture *)
+                  let captured =
+                    match Board.get board ~file:to_file ~rank:to_rank with
+                    | Piece { piece_type; _ } -> Some piece_type
+                    | Empty -> None
+                  in
+                  let moved_piece =
+                    match promotion with
+                    | Some promo_piece -> promo_piece
+                    | None -> piece
+                  in
+                  let board =
+                    Board.set board ~file:src_file ~rank:src_rank Empty
+                  in
+                  let board =
+                    Board.set board ~file:to_file ~rank:to_rank
+                      (Piece { piece_type = moved_piece; color = side_to_move })
+                  in
+                  (board, captured)
+              in
+
+              (* Compute en passant target for NEXT move *)
+              let new_en_passant =
                 if phys_equal piece Pawn && Int.abs (to_rank - src_rank) = 2
                 then
                   let ep_rank = (src_rank + to_rank) / 2 in
@@ -498,33 +613,19 @@ module Move_parser = struct
                 else None
               in
 
-              (* Move the piece *)
-              let moved_piece =
-                match promotion with
-                | Some promo_piece -> promo_piece
-                | None -> piece
-              in
-
-              let board = Board.set board ~file:src_file ~rank:src_rank Empty in
-              let board =
-                Board.set board ~file:to_file ~rank:to_rank
-                  (Piece { piece_type = moved_piece; color = side_to_move })
-              in
-
-              (* Check if move updates castling rights *)
-              let updates_castling =
-                phys_equal piece King
-                || phys_equal piece Rook
-                   && ((src_rank = 0 && (src_file = 0 || src_file = 7))
-                      || (src_rank = 7 && (src_file = 0 || src_file = 7)))
+              (* Compute new castling rights *)
+              let new_castling =
+                update_castling_rights ~piece_moved:piece ~from_file:src_file
+                  ~from_rank:src_rank ~captured ~to_file ~to_rank ~side_to_move
+                  ~castling_rights ~is_castling:false
               in
 
               Ok
                 {
                   board;
                   captured;
-                  updates_castling;
-                  creates_en_passant = en_passant_square;
+                  castling_rights = new_castling;
+                  en_passant_square = new_en_passant;
                 }))
 end
 

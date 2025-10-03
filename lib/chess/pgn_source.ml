@@ -119,6 +119,7 @@ let parse_moves lines =
   let ply = ref 1 in
   let side = ref 'w' in
   let last_token_was_move = ref false in
+  let game_state = ref Fen_generator.initial_state in
 
   let update_last f =
     match !moves with [] -> () | m :: rest -> moves := f m :: rest
@@ -249,16 +250,40 @@ let parse_moves lines =
     let san = String.strip san in
     if String.is_empty san then ()
     else
+      (* Get FEN before move *)
       let fen_before =
-        if Int.equal !ply 1 then Fen_generator.starting_position_fen
-        else
-          Fen_generator.placeholder_fen ~ply_number:(!ply - 1)
-            ~side_to_move:!side
+        Fen_generator.to_fen !game_state
+          ~side_to_move:
+            (if Char.equal !side 'w' then Chess_engine.White
+             else Chess_engine.Black)
       in
+
+      (* Apply move to get new state *)
       let next_side = if Char.equal !side 'w' then 'b' else 'w' in
-      let fen_after =
-        Fen_generator.placeholder_fen ~ply_number:!ply ~side_to_move:next_side
+      let side_to_move =
+        if Char.equal !side 'w' then Chess_engine.White else Chess_engine.Black
       in
+
+      (* Try to apply move - if it fails, use fallback FEN *)
+      let fen_after, new_state =
+        match Fen_generator.apply_move !game_state ~san ~side_to_move with
+        | Ok state ->
+            let fen =
+              Fen_generator.to_fen state
+                ~side_to_move:
+                  (if Char.equal next_side 'w' then Chess_engine.White
+                   else Chess_engine.Black)
+            in
+            (fen, state)
+        | Error err ->
+            (* On error, log and use previous state *)
+            Stdlib.Printf.eprintf
+              "[WARN] Failed to apply move %s (ply %d): %s\n" san !ply err;
+            (fen_before, !game_state)
+      in
+
+      game_state := new_state;
+
       let move =
         {
           Types.Move_feature.ply_number = !ply;

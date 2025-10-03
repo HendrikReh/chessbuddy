@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.0.8 - Modular Library Layout
+
+### Overview
+Reorganizes the `lib/` tree into functional subdirectories (core, chess, persistence, embedding, search, ingestion) while keeping a single wrapped library via Dune’s `include_subdirs` to avoid circular dependencies. Documentation and version metadata have been updated to match the new structure.
+
+### Changes
+- Moved modules into dedicated subdirectories and surfaced them under the `Chessbuddy` namespace.
+- Enabled `(include_subdirs unqualified)` in `lib/dune` so existing module references remain stable despite the file moves.
+- Updated README with the directory map, refreshed API reference paths, and bumped project version to 0.0.8.
+- Confirmed the build (`dune build`) and test suite (`dune runtest`) succeed after the reorganisation.
+
+### Notes
+No database schema or runtime behaviour changes were required for this release.
+
 ## Version 0.0.6 - Performance Benchmarking Suite
 
 ### Overview

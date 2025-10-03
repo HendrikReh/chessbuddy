@@ -1,7 +1,7 @@
 # ChessBuddy
 
 [![OCaml](https://img.shields.io/badge/OCaml-%3E%3D%205.1-orange.svg)](https://ocaml.org)
-[![Version](https://img.shields.io/badge/Version-0.0.6-blue.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/Version-0.0.8-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/Status-Proof%20of%20Concept-yellow.svg)](https://github.com/HendrikReh/chessbuddy)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/HendrikReh/chessbuddy/ci.yml?branch=main)](https://github.com/HendrikReh/chessbuddy/actions)
 [![License](https://img.shields.io/github/license/HendrikReh/chessbuddy)](LICENSE)
@@ -29,6 +29,22 @@ Retrieval system for chess training that combines a relational database (PGN gam
 - **OCaml ingestion service**: Streams PGNs, preserves comments/variations/NAGs per move, generates placeholder-board FENs with accurate metadata, and persists relational rows plus embeddings.
 - **FEN Generator**: Produces placeholder-board FEN strings while keeping side-to-move, castling rights, and en-passant squares aligned with the recorded move metadata.
 - **Schema definition**: `sql/schema.sql` can be applied to the Postgres instance to bootstrap tables, indexes, and helper views/materialized views for thematic queries.
+
+### Code organisation
+
+`lib/` is split into subdirectories grouped by responsibility and exposed through a single wrapped library via Dune’s `include_subdirs` support:
+
+```text
+lib/
+  core/          – shared types, environment loaders, helpers
+  chess/         – chess engine, FEN generator, PGN parser
+  persistence/   – database access layer
+  embedding/     – OpenAI client and embedding providers
+  search/        – semantic search service and indexer
+  ingestion/     – ingestion pipeline orchestration
+```
+
+Dune keeps the modules wrapped under the `Chessbuddy` namespace (for example `Chessbuddy.Core.Types`, `Chessbuddy.Search.Search_service`). CLI utilities (`ingest_cli.ml`, `retrieve_cli.ml`) stay at the root so the executables and tests can reuse the same modules.
 
 ## Performance (Apple M2 Pro 16GB)
 
@@ -107,14 +123,15 @@ Checksums are computed from the PGN file contents, so re-ingesting an updated fi
 
 All public modules have comprehensive `.mli` interface files with OCamldoc-compatible documentation:
 
-- **[Database](lib/database.mli)** - PostgreSQL persistence layer with Caqti 2.x
-- **[Ingestion Pipeline](lib/ingestion_pipeline.mli)** - PGN processing and batch management
-- **[PGN Source](lib/pgn_source.mli)** - Parser for chess game notation
-- **[Chess Engine](lib/chess_engine.mli)** - Lightweight board state tracking and FEN generation
-- **[Search Service](lib/search_service.mli)** - Natural language semantic search
-- **[Search Indexer](lib/search_indexer.mli)** - Text document indexing for semantic search
-- **[Embedder](lib/embedder.mli)** - FEN position embedders
-- **[FEN Generator](lib/fen_generator.mli)** - Position notation utilities
+- **[Core Types](lib/core/types.mli)** - Domain models shared across services
+- **[Database](lib/persistence/database.mli)** - PostgreSQL persistence layer with Caqti 2.x
+- **[Ingestion Pipeline](lib/ingestion/ingestion_pipeline.mli)** - PGN processing and batch management
+- **[PGN Source](lib/chess/pgn_source.mli)** - Parser for chess game notation
+- **[Chess Engine](lib/chess/chess_engine.mli)** - Lightweight board state tracking and FEN generation
+- **[Search Service](lib/search/search_service.mli)** - Natural language semantic search
+- **[Search Indexer](lib/search/search_indexer.mli)** - Text document indexing for semantic search
+- **[Embedder](lib/embedding/embedder.mli)** - FEN position embedders
+- **[FEN Generator](lib/chess/fen_generator.mli)** - Position notation utilities
 
 **Generate HTML documentation:**
 ```bash
@@ -149,7 +166,7 @@ Use the `chessbuddy-retrieve` executable for read-side workflows:
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
 
-**Note**: Current version (0.0.6) includes a custom chess engine implementation (`lib/chess_engine.ml`) with board state tracking and FEN generation, plus comprehensive performance benchmarking tools for measuring ingestion and retrieval operations.
+**Note**: Current version (0.0.8) includes a custom chess engine implementation (`lib/chess_engine.ml`) with board state tracking and FEN generation, plus comprehensive performance benchmarking tools for measuring ingestion and retrieval operations.
 
 ## Testing
 

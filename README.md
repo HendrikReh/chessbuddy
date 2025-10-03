@@ -26,8 +26,8 @@ Retrieval system for chess training that combines a relational database (PGN gam
 ## Components
 
 - **PostgreSQL + pgvector**: Stores players, games, moves, and embeddings. Launch via `docker-compose up -d`.
-- **OCaml ingestion service**: Streams PGNs, preserves comments/variations/NAGs per move, generates placeholder-board FENs with accurate metadata, and persists relational rows plus embeddings.
-- **FEN Generator**: Produces placeholder-board FEN strings while keeping side-to-move, castling rights, and en-passant squares aligned with the recorded move metadata.
+- **OCaml ingestion service**: Streams PGNs, preserves comments/variations/NAGs per move, generates fully evaluated FENs via the embedded chess engine, and persists relational rows plus embeddings.
+- **FEN Generator**: Drives the chess engine to emit accurate board state FEN strings while keeping side-to-move, castling rights, and en-passant squares aligned with the recorded move metadata.
 - **Schema definition**: `sql/schema.sql` can be applied to the Postgres instance to bootstrap tables, indexes, and helper views/materialized views for thematic queries.
 
 ### Code organisation

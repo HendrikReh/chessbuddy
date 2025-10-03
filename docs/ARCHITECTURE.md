@@ -42,24 +42,24 @@ flowchart TB
     end
 
     subgraph CORE["Core Library (lib/)"]
-        PIPE[Ingestion Pipeline<br/>ingestion_pipeline.ml]
-        PGN[PGN Parser<br/>pgn_source.ml]
-        CHESS[Chess Engine<br/>chess_engine.ml]
-        FEN[FEN Generator<br/>fen_generator.ml]
-        EMB[Position Embedder<br/>embedder.ml]
-        SEARCH[Search Service<br/>search_service.ml]
-        IDX[Search Indexer<br/>search_indexer.ml]
-        SEMB[Text Embedder<br/>search_embedder.ml]
+        PIPE[Ingestion Pipeline<br/>ingestion/ingestion_pipeline.ml]
+        PGN[PGN Parser<br/>chess/pgn_source.ml]
+        CHESS[Chess Engine<br/>chess/chess_engine.ml]
+        FEN[FEN Generator<br/>chess/fen_generator.ml]
+        EMB[Position Embedder<br/>embedding/embedder.ml]
+        SEARCH[Search Service<br/>search/search_service.ml]
+        IDX[Search Indexer<br/>search/search_indexer.ml]
+        SEMB[Text Embedder<br/>embedding/search_embedder.ml]
     end
 
     subgraph DATA["Data Layer"]
-        DB[(Database<br/>database.ml)]
-        TYPES[Domain Types<br/>types.ml]
+        DB[(Database<br/>persistence/database.ml)]
+        TYPES[Domain Types<br/>core/types.ml]
     end
 
     subgraph EXT["External Services"]
-        OPENAI[OpenAI API<br/>openai_client.ml]
-        ENV[Configuration<br/>env_loader.ml]
+        OPENAI[OpenAI API<br/>embedding/openai_client.ml]
+        ENV[Configuration<br/>core/env_loader.ml]
     end
 
     subgraph STORE["Persistent Storage"]
@@ -88,15 +88,15 @@ flowchart TB
 | Layer | Modules | Responsibility |
 |-------|---------|----------------|
 | **CLI** | `ingest.ml`, `retrieve.ml`, `ingest_cli.ml`, `retrieve_cli.ml` | Argument parsing, command routing, user interaction |
-| **Domain** | `types.ml` | Core data structures (Player, Game, Move, Batch) |
-| **Pipeline** | `ingestion_pipeline.ml` | Orchestration, deduplication, workflow coordination |
-| **Parsing** | `pgn_source.ml` | PGN format parsing with annotation preservation |
-| **Chess** | `chess_engine.ml` | Board representation, SAN move parsing, FEN generation |
-| **Position** | `fen_generator.ml` | FEN string generation (delegates to chess_engine) |
-| **Embeddings** | `embedder.ml`, `search_embedder.ml`, `openai_client.ml` | Vector generation for positions and text |
-| **Search** | `search_service.ml`, `search_indexer.ml` | Natural language search over entities |
-| **Data Access** | `database.ml` | SQL query abstraction, connection pooling |
-| **Configuration** | `env_loader.ml` | Environment variables and .env file handling |
+| **Domain** | `core/types.ml` | Core data structures (Player, Game, Move, Batch) |
+| **Pipeline** | `ingestion/ingestion_pipeline.ml` | Orchestration, deduplication, workflow coordination |
+| **Parsing** | `chess/pgn_source.ml` | PGN format parsing with annotation preservation |
+| **Chess** | `chess/chess_engine.ml` | Board representation, SAN move parsing, FEN generation |
+| **Position** | `chess/fen_generator.ml` | FEN string generation via the chess engine |
+| **Embeddings** | `embedding/embedder.ml`, `embedding/search_embedder.ml`, `embedding/openai_client.ml` | Vector generation for positions and text |
+| **Search** | `search/search_service.ml`, `search/search_indexer.ml` | Natural language search over entities |
+| **Data Access** | `persistence/database.ml` | SQL query abstraction, connection pooling |
+| **Configuration** | `core/env_loader.ml` | Environment variables and .env file handling |
 
 ## Module Organization
 
@@ -112,7 +112,7 @@ lib/
 └── ingestion/     # Data pipeline
 ```
 
-All modules remain accessible with their original names (e.g., `Types`, `Database`, `Chess_engine`) due to the unqualified include mode.
+All modules remain accessible with their original names (e.g., `Types`, `Database`, `Chess_engine`) due to the unqualified include mode. When referencing modules from other libraries or executables, use the wrapped namespace (for example `Chessbuddy.Chess.Chess_engine`).
 
 ### Core Domain (`lib/core/types.ml`)
 
@@ -132,7 +132,7 @@ module Batch         (* Ingestion batch metadata *)
 - All types support `[@@deriving show, yojson]`
 - Immutable by design (no setters)
 
-### Ingestion Pipeline (`lib/ingestion_pipeline.ml`)
+### Ingestion Pipeline (`lib/ingestion/ingestion_pipeline.ml`)
 
 **Module Signatures:**
 ```ocaml
@@ -160,7 +160,7 @@ module type PGN_SOURCE     (* File → Game stream *)
    - Record position in games_positions table
    - Index for search (if enabled)
 
-### PGN Parser (`lib/pgn_source.ml`)
+### PGN Parser (`lib/chess/pgn_source.ml`)
 
 **Capabilities:**
 - Multi-game file support
@@ -173,9 +173,9 @@ module type PGN_SOURCE     (* File → Game stream *)
 
 **Output:**
 - `Types.Game.t` with structured header and moves
-- Placeholder FENs with accurate side-to-move and ply numbering
+- Fully evaluated FENs generated through the chess engine for both pre- and post-move positions
 
-### Chess Engine (`lib/chess_engine.ml`)
+### Chess Engine (`lib/chess/chess_engine.ml`)
 
 **Purpose:** Lightweight board state tracking and FEN generation without external dependencies.
 
@@ -213,7 +213,7 @@ module Fen           (* Complete FEN string generation and parsing *)
 
 See [docs/CHESS_ENGINE_STATUS.md](CHESS_ENGINE_STATUS.md) for detailed implementation status.
 
-### Database Layer (`lib/database.ml`)
+### Database Layer (`lib/persistence/database.ml`)
 
 **Custom Caqti Types:**
 ```ocaml

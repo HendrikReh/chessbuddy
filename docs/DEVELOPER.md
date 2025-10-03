@@ -1,55 +1,43 @@
 # Developer Guide
 
-## Recent Changes (v0.0.5)
+## Recent Changes (v0.0.8)
 
 ### New Features
 
-**Chess Engine Implementation (October 2025):**
-- ✅ Custom lightweight chess engine in `lib/chess/chess_engine.ml` (451 lines)
-- ✅ Full module interface documentation in `lib/chess/chess_engine.mli` (187 lines)
-- ✅ Three main modules: `Board`, `Move_parser`, `Fen`
-- ✅ Comprehensive test suite with 16 test cases (50% passing)
-- ⚠️ Integration with `fen_generator.ml` pending
-- ⚠️ 8 test failures in move application logic need fixes
+**Library modularisation (October 2025):**
+- ✅ `lib/` reorganised into functional subdirectories (`core`, `chess`, `persistence`, `embedding`, `search`, `ingestion`)
+- ✅ Dune uses `include_subdirs unqualified`, keeping a single wrapped library while exposing modules as `Chessbuddy.<Domain>.<Module>`
+- ✅ README and architecture docs updated with the new layout
 
-**Natural Language Search (October 2025):**
-- ✅ Search indexer for games, players, FENs, batches (`search_indexer.ml`)
-- ✅ Entity-filtered semantic search (`search_service.ml`)
-- ✅ Stub embedder for testing without API keys
-- ✅ OpenAI text-embedding-3-small integration ready
-- ✅ Full test coverage with 2 passing tests
+**Chess Engine Integration:**
+- ✅ `Fen_generator` now drives `Chess_engine.Move_parser.apply_san` to emit accurate board-state FENs for every move
+- ✅ En passant capture and castling rights tracking fixed as part of the integration
+- ✅ `dune runtest` covers the engine + ingestion path end-to-end (all chess engine tests now passing)
 
-**CLI Improvements:**
-- ✅ Argument validation tests for ingest CLI (12 tests)
-- ✅ Argument validation tests for retrieve CLI (9 tests)
-- ✅ All command help flows validated
+**Documentation & Tooling refresh:**
+- ✅ README badges bumped to v0.0.8 with the new directory map
+- ✅ Release notes capture the modular layout changes
+- ✅ Developer guide updated (this document)
 
 ### Breaking Changes
 
-None - all changes are additive.
+None – module names remain unchanged thanks to `include_subdirs unqualified`. Projects depending on `Chessbuddy` should continue to compile without edits.
 
 ### Performance Impact
 
-**Expected changes when chess_engine is integrated:**
-- FEN deduplication will drop from 99.93% to realistic levels (5-20%)
-- Processing speed may slow initially until optimized
-- Memory usage will increase due to board state tracking
-
-**Target performance maintained:**
-- <1ms FEN generation
-- <0.5ms move application
-- ~15 games/sec ingestion throughput
+- FEN generation and move application continue to meet targets (<1 ms / <0.5 ms respectively)
+- Real board tracking reduces FEN deduplication efficiency (expected compared to placeholder approach)
+- Throughput continues to hover around ~15 games/sec on the reference hardware
 
 ### Migration Notes
 
 **For developers:**
-1. Chess engine is implemented but not yet wired into ingestion pipeline
-2. FEN generator still uses placeholder board state
-3. Run tests with `dune runtest` to see chess_engine failures
-4. Integration blocked on fixing 8 move application bugs
+1. Update any hard-coded filesystem references to point to the new subdirectories (for example `lib/chess/chess_engine.ml`)
+2. When adding modules, place them in the appropriate domain folder and let Dune pick them up automatically
+3. The chess engine is fully wired into ingestion – run `dune runtest` before pushing to ensure board regressions are caught early
 
 **For users:**
-No changes required - chess engine is not yet active in production flow.
+No CLI or schema changes. Binary behaviour remains the same aside from more accurate FEN metadata.
 
 ## Module Organization (v0.0.8)
 
@@ -82,11 +70,11 @@ All public modules have comprehensive interface files with OCamldoc-compatible d
 | [database.mli](../lib/persistence/database.mli) | PostgreSQL persistence with Caqti 2.x | `Pool.t`, `batch_summary`, `game_detail`, `fen_info` | ✅ Stable |
 | [ingestion_pipeline.mli](../lib/ingestion/ingestion_pipeline.mli) | PGN ingestion orchestration | `EMBEDDER`, `PGN_SOURCE`, `inspection_summary` | ✅ Stable |
 | [pgn_source.mli](../lib/chess/pgn_source.mli) | Chess game notation parser | `header_map`, `Default` module | ✅ Stable |
-| [chess_engine.mli](../lib/chess/chess_engine.mli) | Board state tracking and FEN generation | `Board.t`, `Move_parser`, `Fen` | ⚠️ Integration pending |
+| [chess_engine.mli](../lib/chess/chess_engine.mli) | Board state tracking and FEN generation | `Board.t`, `Move_parser`, `Fen` | ✅ Stable |
 | [search_service.mli](../lib/search/search_service.mli) | Natural language search | Entity filters, similarity ranking | ✅ Stable |
 | [search_indexer.mli](../lib/search/search_indexer.mli) | Text document indexing | `TEXT_EMBEDDER`, entity summarization | ✅ Stable |
 | [embedder.mli](../lib/embedding/embedder.mli) | FEN position embedders | `PROVIDER`, `Constant` stub | ✅ Stable |
-| [fen_generator.mli](../lib/chess/fen_generator.mli) | Position notation generation | Placeholder FEN utilities | ⚠️ Migration to chess_engine pending |
+| [fen_generator.mli](../lib/chess/fen_generator.mli) | Position notation generation | Game-state-aware FEN utilities | ✅ Stable |
 
 ### Generating HTML Documentation
 
@@ -180,8 +168,7 @@ flowchart LR
 - `ingestion_pipeline.ml` coordinates database transactions, deduplication, and
   calls into supporting modules.
 - `pgn_source.ml` parses headers and moves, emitting structured games.
-- `fen_generator.ml` derives placeholder FENs for move-by-move tracking until a
-  full engine-backed generator is wired in.
+- `fen_generator.ml` uses the chess engine to track board state and emit accurate FENs for every move.
 - `embedder.ml` converts unique FENs into 768-d vectors for semantic queries.
 - `sql/schema.sql` defines relational tables and pgvector-backed similarity
   capabilities.
@@ -739,69 +726,39 @@ psql chessbuddy -c "SELECT COUNT(*) FROM games;"
 # Result: 4,875
 ```
 
-## FEN Generator Module (v0.0.2)
+## FEN Generator Module (v0.0.8)
 
 ### Overview
 
-The FEN generator (`lib/chess/fen_generator.ml`) produces FEN notation for each position during PGN parsing. Current implementation uses placeholder board states.
+The FEN generator (`lib/chess/fen_generator.ml`) now maintains a full game state backed by the custom chess engine. Each call to `apply_move` feeds SAN moves through `Chess_engine.Move_parser`, updates castling rights/en-passant metadata, and returns an updated `game_state`. `to_fen` then emits the fully accurate FEN string for the current position.
 
-**Module interface:**
-
-```ocaml
-(** Standard starting position FEN *)
-val starting_position_fen : string
-
-(** Generate placeholder FEN for a position after N moves *)
-val placeholder_fen : ply_number:int -> side_to_move:char -> string
-```
-
-**Example usage:**
+**Module interface (excerpt):**
 
 ```ocaml
-(* Move 1, White to move *)
-Fen_generator.starting_position_fen
-(* "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" *)
+type game_state = {
+  board : Chess_engine.Board.t;
+  castling_rights : Chess_engine.castling_rights;
+  en_passant_square : string option;
+  halfmove_clock : int;
+  fullmove_number : int;
+}
 
-(* Move 5, Black to move *)
-Fen_generator.placeholder_fen ~ply_number:5 ~side_to_move:'b'
-(* "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 3" *)
+val initial_state : game_state
+val apply_move : game_state -> san:string -> side_to_move:Chess_engine.color ->
+  (game_state, string) Result.t
+val to_fen : game_state -> side_to_move:Chess_engine.color -> string
 ```
 
-**FEN components tracked:**
-- Board position: Starting position (placeholder for all moves)
-- Active color: Alternates w/b based on ply number
-- Castling rights: Always "KQkq" (placeholder)
-- En passant: Always "-" (none, placeholder)
-- Halfmove clock: Always "0" (placeholder)
-- Fullmove number: Computed as `(ply_number + 1) / 2`
+`placeholder_fen` still exists for backwards compatibility but now logs a warning; new code should rely on `apply_move`/`to_fen`.
 
 **Integration:**
 
-The FEN generator is called during PGN parsing in `lib/chess/pgn_source.ml`:
+`lib/chess/pgn_source.ml` seeds a fresh `game_state` per game, calls `apply_move` for each SAN token, and records both `fen_before` and `fen_after` from `to_fen`. Failures fall back to the previous state with a warning so ingestion stays resilient to malformed PGNs.
 
-```ocaml
-let fen_before =
-  if ply = 1 then Fen_generator.starting_position_fen
-  else Fen_generator.placeholder_fen ~ply_number:(ply - 1) ~side_to_move:side
-in
-let next_side = if side = 'w' then 'b' else 'w' in
-let fen_after = Fen_generator.placeholder_fen ~ply_number:ply ~side_to_move:next_side in
-```
-
-**Limitations:**
-- Board position always shows starting position
-- Castling rights not tracked (requires move validation)
-- En passant not tracked (requires previous move analysis)
-- Halfmove clock not tracked (requires capture/pawn move detection)
-
-**Future enhancement:**
-
-Integration with chess engine library (e.g., ocamlchess, shakmaty) will enable:
-- Full board state tracking
-- Actual castling rights computation
-- En passant square detection
-- Halfmove clock maintenance
-- Move validation and legal position verification
+**Benefits:**
+- Accurate board positions (pieces, castling rights, en passant targets)
+- Half-move clock maintained for the fifty-move rule
+- Full-move number derived from tracked ply count
 
 ## Performance Metrics (v0.0.2)
 

@@ -100,7 +100,21 @@ flowchart TB
 
 ## Module Organization
 
-### Core Domain (`lib/types.ml`)
+The codebase is organized into functional subdirectories using Dune's `include_subdirs unqualified`. This provides clean separation while maintaining a single wrapped library:
+
+```
+lib/
+├── core/          # Domain types and configuration
+├── chess/         # Chess-specific logic
+├── persistence/   # Database layer
+├── embedding/     # Vector embeddings
+├── search/        # Semantic search
+└── ingestion/     # Data pipeline
+```
+
+All modules remain accessible with their original names (e.g., `Types`, `Database`, `Chess_engine`) due to the unqualified include mode.
+
+### Core Domain (`lib/core/types.ml`)
 
 Defines immutable data structures:
 

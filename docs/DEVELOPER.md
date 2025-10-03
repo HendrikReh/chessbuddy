@@ -5,8 +5,8 @@
 ### New Features
 
 **Chess Engine Implementation (October 2025):**
-- ✅ Custom lightweight chess engine in `lib/chess_engine.ml` (451 lines)
-- ✅ Full module interface documentation in `lib/chess_engine.mli` (187 lines)
+- ✅ Custom lightweight chess engine in `lib/chess/chess_engine.ml` (451 lines)
+- ✅ Full module interface documentation in `lib/chess/chess_engine.mli` (187 lines)
 - ✅ Three main modules: `Board`, `Move_parser`, `Fen`
 - ✅ Comprehensive test suite with 16 test cases (50% passing)
 - ⚠️ Integration with `fen_generator.ml` pending
@@ -51,6 +51,26 @@ None - all changes are additive.
 **For users:**
 No changes required - chess engine is not yet active in production flow.
 
+## Module Organization (v0.0.8)
+
+The codebase uses a **functional subdirectory structure** with Dune's `include_subdirs unqualified`:
+
+```
+lib/
+├── core/          # Domain types (types.ml, env_loader.ml)
+├── chess/         # Chess logic (chess_engine.ml, fen_generator.ml, pgn_source.ml)
+├── persistence/   # Database (database.ml)
+├── embedding/     # Embeddings (embedder.ml, openai_client.ml, search_embedder.ml)
+├── search/        # Search (search_service.ml, search_indexer.ml)
+└── ingestion/     # Pipeline (ingestion_pipeline.ml)
+```
+
+**Key points:**
+- All modules remain accessible with original names (e.g., `Types`, `Database`, `Chess_engine`)
+- Single wrapped library under `Chessbuddy` namespace
+- No circular dependencies due to unqualified include mode
+- Clean separation of concerns by domain
+
 ## API Documentation
 
 ### Module Interfaces (.mli files)
@@ -59,14 +79,14 @@ All public modules have comprehensive interface files with OCamldoc-compatible d
 
 | Module | Purpose | Key Types | Status |
 |--------|---------|-----------|--------|
-| [database.mli](../lib/database.mli) | PostgreSQL persistence with Caqti 2.x | `Pool.t`, `batch_summary`, `game_detail`, `fen_info` | ✅ Stable |
-| [ingestion_pipeline.mli](../lib/ingestion_pipeline.mli) | PGN ingestion orchestration | `EMBEDDER`, `PGN_SOURCE`, `inspection_summary` | ✅ Stable |
-| [pgn_source.mli](../lib/pgn_source.mli) | Chess game notation parser | `header_map`, `Default` module | ✅ Stable |
-| [chess_engine.mli](../lib/chess_engine.mli) | Board state tracking and FEN generation | `Board.t`, `Move_parser`, `Fen` | ⚠️ Integration pending |
-| [search_service.mli](../lib/search_service.mli) | Natural language search | Entity filters, similarity ranking | ✅ Stable |
-| [search_indexer.mli](../lib/search_indexer.mli) | Text document indexing | `TEXT_EMBEDDER`, entity summarization | ✅ Stable |
-| [embedder.mli](../lib/embedder.mli) | FEN position embedders | `PROVIDER`, `Constant` stub | ✅ Stable |
-| [fen_generator.mli](../lib/fen_generator.mli) | Position notation generation | Placeholder FEN utilities | ⚠️ Migration to chess_engine pending |
+| [database.mli](../lib/persistence/database.mli) | PostgreSQL persistence with Caqti 2.x | `Pool.t`, `batch_summary`, `game_detail`, `fen_info` | ✅ Stable |
+| [ingestion_pipeline.mli](../lib/ingestion/ingestion_pipeline.mli) | PGN ingestion orchestration | `EMBEDDER`, `PGN_SOURCE`, `inspection_summary` | ✅ Stable |
+| [pgn_source.mli](../lib/chess/pgn_source.mli) | Chess game notation parser | `header_map`, `Default` module | ✅ Stable |
+| [chess_engine.mli](../lib/chess/chess_engine.mli) | Board state tracking and FEN generation | `Board.t`, `Move_parser`, `Fen` | ⚠️ Integration pending |
+| [search_service.mli](../lib/search/search_service.mli) | Natural language search | Entity filters, similarity ranking | ✅ Stable |
+| [search_indexer.mli](../lib/search/search_indexer.mli) | Text document indexing | `TEXT_EMBEDDER`, entity summarization | ✅ Stable |
+| [embedder.mli](../lib/embedding/embedder.mli) | FEN position embedders | `PROVIDER`, `Constant` stub | ✅ Stable |
+| [fen_generator.mli](../lib/chess/fen_generator.mli) | Position notation generation | Placeholder FEN utilities | ⚠️ Migration to chess_engine pending |
 
 ### Generating HTML Documentation
 
@@ -142,13 +162,13 @@ primary modules and how data flows between them during a typical ingestion run.
 ```mermaid
 flowchart LR
   CLI["Ingest CLI\n(bin/ingest.exe)"] -->|CLI args| Pipeline
-  Pipeline["Ingestion Pipeline\n(lib/ingestion_pipeline.ml)"] -->|streams PGN| Pgn
-  Pgn["PGN Source\n(lib/pgn_source.ml)"] -->|moves & metadata| Pipeline
+  Pipeline["Ingestion Pipeline\n(lib/ingestion/ingestion_pipeline.ml)"] -->|streams PGN| Pgn
+  Pgn["PGN Source\n(lib/chess/pgn_source.ml)"] -->|moves & metadata| Pipeline
   Pipeline -->|players & games| Database
   Pipeline -->|positions| Fen
-  Fen["FEN Generator\n(lib/fen_generator.ml)"] -->|FENs| Pipeline
+  Fen["FEN Generator\n(lib/chess/fen_generator.ml)"] -->|FENs| Pipeline
   Pipeline -->|embedding requests| Embedder
-  Embedder["Embedder\n(lib/embedder.ml)"] -->|vectors| Pipeline
+  Embedder["Embedder\n(lib/embedding/embedder.ml)"] -->|vectors| Pipeline
   Database["PostgreSQL\n(sql/schema.sql)"] -->|pgvector storage| Vector
   Pipeline -->|batch bookkeeping| Database
   Pipeline -->|position embeddings| Vector
@@ -403,7 +423,7 @@ Set `CHESSBUDDY_REQUIRE_DB_TESTS=1` locally when you want the suite to fail fast
 
 **What to test:**
 
-1. **Database module tests** (`lib/database.ml`):
+1. **Database module tests** (`lib/persistence/database.ml`):
    - Player upsert with/without FIDE ID
    - Name normalization and conflict resolution
    - Rating history insertion
@@ -601,7 +621,7 @@ Add to `.github/workflows/ci.yml`:
 - Source square finding issues in disambiguation
 - FEN round-trip not preserving board state
 
-These are implementation bugs in `lib/chess_engine.ml:388-500` that need to be fixed before integration with the ingestion pipeline.
+These are implementation bugs in `lib/chess/chess_engine.ml:388-500` that need to be fixed before integration with the ingestion pipeline.
 
 **Run tests:**
 
@@ -723,7 +743,7 @@ psql chessbuddy -c "SELECT COUNT(*) FROM games;"
 
 ### Overview
 
-The FEN generator (`lib/fen_generator.ml`) produces FEN notation for each position during PGN parsing. Current implementation uses placeholder board states.
+The FEN generator (`lib/chess/fen_generator.ml`) produces FEN notation for each position during PGN parsing. Current implementation uses placeholder board states.
 
 **Module interface:**
 
@@ -757,7 +777,7 @@ Fen_generator.placeholder_fen ~ply_number:5 ~side_to_move:'b'
 
 **Integration:**
 
-The FEN generator is called during PGN parsing in `lib/pgn_source.ml`:
+The FEN generator is called during PGN parsing in `lib/chess/pgn_source.ml`:
 
 ```ocaml
 let fen_before =

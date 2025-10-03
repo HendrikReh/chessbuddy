@@ -166,7 +166,7 @@ Use the `chessbuddy-retrieve` executable for read-side workflows:
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
 
-**Note**: Current version (0.0.8) includes a custom chess engine implementation (`lib/chess_engine.ml`) with board state tracking and FEN generation, plus comprehensive performance benchmarking tools for measuring ingestion and retrieval operations.
+**Note**: Current version (0.0.8) includes a custom chess engine implementation (`lib/chess/chess_engine.ml`) with board state tracking and FEN generation, plus comprehensive performance benchmarking tools for measuring ingestion and retrieval operations.
 
 ## Testing
 

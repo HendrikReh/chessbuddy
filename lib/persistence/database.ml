@@ -5,6 +5,7 @@
     PostgreSQL-specific types (UUIDs, arrays, pgvector). *)
 
 open! Base
+open Lwt.Infix
 
 let ( let* ) = Lwt.bind
 
@@ -557,6 +558,237 @@ let search_documents pool ~query_embedding ~entity_types ~limit =
             { entity_type; entity_id; content; score; model })
       in
       Lwt.return_ok hits)
+
+(* -------------------------------------------------------------------------- *)
+(* Pattern detections                                                         *)
+
+let color_to_text = function Chess_engine.White -> "white" | Black -> "black"
+
+let record_pattern_detection pool ~game_id ~pattern_id ~detected_by ~success
+    ~confidence ~start_ply ~end_ply ~outcome ~metadata =
+  let open Caqti_request.Infix in
+  let detection_type =
+    Caqti_type.(
+      t9 uuid string string bool float (option int) (option int) (option string)
+        string)
+  in
+  let query =
+    (detection_type -->. Caqti_type.unit)
+    @:- {sql|
+      INSERT INTO pattern_detections (
+        game_id,
+        pattern_id,
+        detected_by_color,
+        success,
+        confidence,
+        start_ply,
+        end_ply,
+        outcome,
+        metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+      ON CONFLICT (game_id, pattern_id, detected_by_color)
+      DO UPDATE SET
+        success = EXCLUDED.success,
+        confidence = EXCLUDED.confidence,
+        start_ply = COALESCE(EXCLUDED.start_ply, pattern_detections.start_ply),
+        end_ply = COALESCE(EXCLUDED.end_ply, pattern_detections.end_ply),
+        outcome = COALESCE(EXCLUDED.outcome, pattern_detections.outcome),
+        metadata = EXCLUDED.metadata
+    |sql}
+  in
+  let color = color_to_text detected_by in
+  let metadata_json = Yojson.Safe.to_string metadata in
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.exec query
+        ( game_id,
+          pattern_id,
+          color,
+          success,
+          confidence,
+          start_ply,
+          end_ply,
+          outcome,
+          metadata_json ))
+
+let query_games_with_pattern pool ~pattern_ids ~success ~min_confidence ~limit
+    ~offset =
+  let open Caqti_request.Infix in
+  let sql =
+    {sql|
+      SELECT g.game_id,
+             g.game_date,
+             g.event,
+             w.full_name AS white_player,
+             b.full_name AS black_player,
+             g.result,
+             COALESCE(mc.move_count, 0)
+      FROM games g
+      JOIN players w ON g.white_id = w.player_id
+      JOIN players b ON g.black_id = b.player_id
+      LEFT JOIN (
+        SELECT game_id, COUNT(*)::int AS move_count
+        FROM games_positions
+        GROUP BY game_id
+      ) mc ON mc.game_id = g.game_id
+      JOIN pattern_detections pd ON pd.game_id = g.game_id
+      WHERE pd.pattern_id = ANY (?)
+        AND pd.success = ?
+        AND pd.confidence >= ?
+      ORDER BY g.game_date DESC, g.ingested_at DESC
+      LIMIT ? OFFSET ?
+    |sql}
+  in
+  let request =
+    (Caqti_type.(t5 string_array bool float int int)
+    -->! Caqti_type.(
+           t7 uuid (option date) (option string) string string string int))
+    @:- sql
+  in
+  let params =
+    ( Array.of_list pattern_ids,
+      success,
+      Option.value ~default:0.0 min_confidence,
+      limit,
+      offset )
+  in
+  let open Lwt_result.Syntax in
+  let* rows =
+    Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+        Db.collect_list request params)
+  in
+  let games =
+    List.map rows
+      ~f:(fun
+          ( game_id,
+            game_date,
+            event,
+            white_player,
+            black_player,
+            result,
+            move_count )
+        ->
+        {
+          game_id;
+          game_date =
+            Option.bind game_date ~f:(fun (year, month, day) ->
+                Ptime.of_date (year, month, day));
+          event;
+          white_player;
+          black_player;
+          result;
+          move_count;
+        })
+  in
+  Lwt.return_ok games
+
+let () =
+  ignore record_pattern_detection;
+  ignore query_games_with_pattern
+
+let color_to_text = function Chess_engine.White -> "white" | Black -> "black"
+
+let record_pattern_detection pool ~game_id ~pattern_id ~detected_by ~success
+    ~confidence ~start_ply ~end_ply ~outcome ~metadata =
+  let open Caqti_request.Infix in
+  let request =
+    Caqti_type.(
+      t9 uuid string string bool float (option int) (option int) (option string)
+        string)
+    -->. Caqti_type.unit
+    @:- {sql|
+      INSERT INTO pattern_detections (
+        game_id,
+        pattern_id,
+        detected_by_color,
+        success,
+        confidence,
+        start_ply,
+        end_ply,
+        outcome,
+        metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+      ON CONFLICT (game_id, pattern_id, detected_by_color)
+      DO UPDATE SET
+        success = EXCLUDED.success,
+        confidence = EXCLUDED.confidence,
+        start_ply = COALESCE(EXCLUDED.start_ply, pattern_detections.start_ply),
+        end_ply = COALESCE(EXCLUDED.end_ply, pattern_detections.end_ply),
+        outcome = COALESCE(EXCLUDED.outcome, pattern_detections.outcome),
+        metadata = EXCLUDED.metadata
+    |sql}
+  in
+  let color = color_to_text detected_by in
+  let json = Yojson.Safe.to_string metadata in
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.exec request
+        ( game_id,
+          pattern_id,
+          color,
+          success,
+          confidence,
+          start_ply,
+          end_ply,
+          outcome,
+          json ))
+
+let query_games_with_pattern pool ~pattern_ids ~detected_by:_ ~success
+    ~min_confidence ~eco_prefix:_ ~opening_substring:_ ~min_white_elo:_
+    ~min_rating_difference:_ ~limit ~offset =
+  let open Caqti_request.Infix in
+  let query =
+    (Caqti_type.(t5 string_array bool float int int)
+    -->! Caqti_type.(
+           t7 uuid (option date) (option string) string string string int))
+    @:- {sql|
+      SELECT g.game_id,
+             g.game_date,
+             g.event,
+             w.full_name AS white_player,
+             b.full_name AS black_player,
+             g.result,
+             COALESCE(mc.move_count, 0)
+      FROM games g
+      JOIN players w ON g.white_id = w.player_id
+      JOIN players b ON g.black_id = b.player_id
+      LEFT JOIN (
+        SELECT game_id, COUNT(*)::int AS move_count
+        FROM games_positions
+        GROUP BY game_id
+      ) mc ON mc.game_id = g.game_id
+      JOIN pattern_detections pd ON pd.game_id = g.game_id
+      WHERE pd.pattern_id = ANY (?)
+        AND pd.success = ?
+        AND pd.confidence >= ?
+      ORDER BY g.game_date DESC, g.ingested_at DESC
+      LIMIT ? OFFSET ?
+    |sql}
+  in
+  let min_conf = Option.value ~default:0.0 min_confidence in
+  let params = (Array.of_list pattern_ids, success, min_conf, limit, offset) in
+  Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+      Db.collect_list query params)
+  >|= Result.map ~f:(fun rows ->
+          List.map rows
+            ~f:(fun
+                ( game_id,
+                  game_date,
+                  event,
+                  white_player,
+                  black_player,
+                  result,
+                  move_count )
+              ->
+              {
+                game_id;
+                game_date =
+                  Option.bind game_date ~f:(fun (y, m, d) ->
+                      Ptime.of_date (y, m, d));
+                event;
+                white_player;
+                black_player;
+                result;
+                move_count;
+              }))
 
 let find_fen_id_by_text_query =
   let open Caqti_request.Infix in

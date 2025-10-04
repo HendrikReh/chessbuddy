@@ -350,6 +350,59 @@ val search_documents :
   entity_types:string array ->
   limit:int ->
   (search_hit list, Caqti_error.t) Result.t Lwt.t
+
+[@@@ocaml.warning "-32"]
+
+val record_pattern_detection :
+  Pool.t ->
+  game_id:Uuidm.t ->
+  pattern_id:string ->
+  detected_by:Chess_engine.color ->
+  success:bool ->
+  confidence:float ->
+  start_ply:int option ->
+  end_ply:int option ->
+  outcome:string option ->
+  metadata:Yojson.Safe.t ->
+  (unit, Caqti_error.t) Result.t Lwt.t
+
+val query_games_with_pattern :
+  Pool.t ->
+  pattern_ids:string list ->
+  success:bool ->
+  min_confidence:float option ->
+  limit:int ->
+  offset:int ->
+  (game_overview list, Caqti_error.t) Result.t Lwt.t
+
+[@@@ocaml.warning "+32"]
+
+val record_pattern_detection :
+  Pool.t ->
+  game_id:Uuidm.t ->
+  pattern_id:string ->
+  detected_by:Chess_engine.color ->
+  success:bool ->
+  confidence:float ->
+  start_ply:int option ->
+  end_ply:int option ->
+  outcome:string option ->
+  metadata:Yojson.Safe.t ->
+  (unit, Caqti_error.t) Result.t Lwt.t
+
+val query_games_with_pattern :
+  Pool.t ->
+  pattern_ids:string list ->
+  detected_by:Chess_engine.color option ->
+  success:bool ->
+  min_confidence:float option ->
+  eco_prefix:string option ->
+  opening_substring:string option ->
+  min_white_elo:int option ->
+  min_rating_difference:int option ->
+  limit:int ->
+  offset:int ->
+  (game_overview list, Caqti_error.t) Result.t Lwt.t
 (** [search_documents pool ~query_embedding ~entity_types ~limit] performs
     hybrid search.
 

@@ -98,6 +98,7 @@ type config = {
   warmup_runs : int;
   benchmark_runs : int;
   retrieval_samples : int;
+  pattern_samples : int;
 }
 (** Benchmark configuration *)
 
@@ -108,6 +109,7 @@ let default_config =
     warmup_runs = 1;
     benchmark_runs = 3;
     retrieval_samples = 100;
+    pattern_samples = 50;
   }
 
 (** Stub text embedder for benchmarking *)
@@ -126,6 +128,241 @@ let create_pool uri_string =
   match Database.Pool.create (Uri.of_string uri_string) with
   | Ok pool -> pool
   | Error err -> failwith (Caqti_error.show err)
+
+module Pattern_analysis = struct
+  module Registry = Pattern_detector.Registry
+
+  let uuid_type =
+    let encode uuid = Ok (Uuidm.to_string uuid) in
+    let decode str =
+      match Uuidm.of_string str with
+      | Some uuid -> Ok uuid
+      | None -> Error ("Invalid UUID: " ^ str)
+    in
+    Caqti_type.(custom ~encode ~decode string)
+
+  type sample_game = { result : string; moves : Types.Move_feature.t list }
+
+  let move_query =
+    let open Caqti_request.Infix in
+    let open Caqti_type in
+    let row_type =
+      t2 int
+        (t2 string
+           (t2 (option string)
+              (t2 string
+                 (t2 string
+                    (t2 string (t2 (option int) (t2 bool (t2 bool bool))))))))
+    in
+    (uuid_type -->* row_type)
+    @:- {sql|
+    SELECT ply_number,
+           san,
+           uci,
+           fen_before,
+           fen_after,
+           side_to_move,
+           eval_cp,
+           is_capture,
+           is_check,
+           is_mate
+    FROM games_positions
+    WHERE game_id = ?
+    ORDER BY ply_number ASC
+  |sql}
+
+  let load_moves pool game_id =
+    let%lwt rows_result =
+      Database.Pool.use pool (fun (module Db : Caqti_lwt.CONNECTION) ->
+          Db.collect_list move_query game_id)
+    in
+    let%lwt rows = Database.or_fail rows_result in
+    let moves =
+      List.map rows
+        ~f:(fun
+            ( ply,
+              ( san,
+                ( uci,
+                  ( fen_before,
+                    ( fen_after,
+                      ( side_to_move,
+                        (eval_cp, (is_capture, (is_check, is_mate))) ) ) ) ) )
+            )
+          ->
+          let side_char =
+            if String.length side_to_move > 0 then String.get side_to_move 0
+            else 'w'
+          in
+          let motifs = [] in
+          {
+            Types.Move_feature.ply_number = ply;
+            san;
+            uci;
+            fen_before;
+            fen_after;
+            side_to_move = side_char;
+            eval_cp;
+            is_capture;
+            is_check;
+            is_mate;
+            motifs;
+            comments_before = [];
+            comments_after = [];
+            variations = [];
+            nags = [];
+          })
+    in
+    Lwt.return moves
+
+  let load_sample_games pool ~limit =
+    let limit = Int.max 0 limit in
+    if limit = 0 then Lwt.return []
+    else
+      let%lwt games_result = Database.list_games pool ~limit ~offset:0 in
+      let%lwt games = Database.or_fail games_result in
+      Lwt_list.filter_map_s
+        (fun (overview : Database.game_overview) ->
+          let%lwt moves = load_moves pool overview.game_id in
+          if List.is_empty moves then Lwt.return_none
+          else Lwt.return_some { result = overview.result; moves })
+        games
+
+  let pattern_type_to_string = function
+    | `Strategic -> "strategic"
+    | `Tactical -> "tactical"
+    | `Endgame -> "endgame"
+    | `Opening_trap -> "opening_trap"
+
+  let outcome_to_string = function
+    | Pattern_detector.Victory -> "victory"
+    | DrawAdvantage -> "draw_advantage"
+    | DrawNeutral -> "draw_neutral"
+    | Defeat -> "defeat"
+
+  type pattern_info = {
+    detector : (module Pattern_detector.PATTERN_DETECTOR);
+    id : string;
+    name : string;
+    kind : string;
+    stats : Stats.t ref;
+    detections : int ref;
+    successes : int ref;
+    confidence_sum : float ref;
+    outcome_counts : (string, int) Hashtbl.t;
+  }
+
+  let make_info detector =
+    let module D = (val detector : Pattern_detector.PATTERN_DETECTOR) in
+    {
+      detector;
+      id = D.pattern_id;
+      name = D.pattern_name;
+      kind = pattern_type_to_string D.pattern_type;
+      stats = ref (Stats.create ());
+      detections = ref 0;
+      successes = ref 0;
+      confidence_sum = ref 0.0;
+      outcome_counts = Hashtbl.create (module String);
+    }
+
+  let update_outcome counts label =
+    Hashtbl.change counts label ~f:(function
+      | None -> Some 1
+      | Some count -> Some (count + 1))
+
+  let benchmark config =
+    Fmt.printf "\n=== Pattern Detection Benchmark ===\n%!";
+    let pool = create_pool config.db_uri in
+    Patterns.register_all ();
+    let detectors = Registry.list () in
+    if List.is_empty detectors then (
+      Fmt.printf "No pattern detectors registered. Skipping benchmark.\n%!";
+      Lwt.return_unit)
+    else
+      let%lwt samples = load_sample_games pool ~limit:config.pattern_samples in
+      let games_processed = List.length samples in
+      if games_processed = 0 then (
+        Fmt.printf
+          "No games with stored positions were found. Ingest data before \
+           running pattern benchmarks.\n\
+           %!";
+        Lwt.return_unit)
+      else
+        let pattern_infos = List.map detectors ~f:make_info in
+        let%lwt () =
+          Lwt_list.iter_s
+            (fun sample ->
+              Lwt_list.iter_s
+                (fun info ->
+                  let module D =
+                    (val info.detector : Pattern_detector.PATTERN_DETECTOR)
+                  in
+                  let%lwt (detection, (success_flag, outcome)), elapsed =
+                    Timer.time_lwt (fun () ->
+                        let%lwt detection =
+                          D.detect ~moves:sample.moves ~result:sample.result
+                        in
+                        let%lwt success_info =
+                          if detection.detected then
+                            D.classify_success ~detection ~result:sample.result
+                          else Lwt.return (false, Pattern_detector.DrawNeutral)
+                        in
+                        Lwt.return (detection, success_info))
+                  in
+                  info.stats := Stats.add !(info.stats) elapsed;
+                  if detection.detected then (
+                    info.detections := !(info.detections) + 1;
+                    info.confidence_sum :=
+                      !(info.confidence_sum) +. detection.confidence;
+                    update_outcome info.outcome_counts
+                      (outcome_to_string outcome);
+                    if success_flag then info.successes := !(info.successes) + 1);
+                  Lwt.return_unit)
+                pattern_infos)
+            samples
+        in
+        Fmt.printf "Processed %d games across %d detectors.\n" games_processed
+          (List.length pattern_infos);
+        List.iter pattern_infos ~f:(fun info ->
+            let stats_label =
+              Fmt.sprintf "%s (%s) [%s]" info.name info.kind info.id
+            in
+            Stats.print_summary stats_label !(info.stats);
+            let detection_count = !(info.detections) in
+            let detection_rate =
+              if games_processed = 0 then 0.0
+              else
+                Float.of_int detection_count
+                /. Float.of_int games_processed
+                *. 100.0
+            in
+            let avg_confidence =
+              if detection_count = 0 then 0.0
+              else !(info.confidence_sum) /. Float.of_int detection_count
+            in
+            let success_rate =
+              if detection_count = 0 then 0.0
+              else
+                Float.of_int !(info.successes)
+                /. Float.of_int detection_count
+                *. 100.0
+            in
+            Fmt.printf "  Detections: %d/%d (%.1f%%)\n" detection_count
+              games_processed detection_rate;
+            Fmt.printf "  Success rate: %.1f%%\n" success_rate;
+            Fmt.printf "  Avg confidence: %.3f\n" avg_confidence;
+            let outcome_breakdown =
+              info.outcome_counts |> Hashtbl.to_alist
+              |> List.sort ~compare:(fun (a, _) (b, _) -> String.compare a b)
+            in
+            if not (List.is_empty outcome_breakdown) then (
+              Fmt.printf "  Outcome counts:\n";
+              List.iter outcome_breakdown ~f:(fun (label, count) ->
+                  Fmt.printf "    %s: %d\n" label count));
+            Fmt.printf "\n";
+            ());
+        Lwt.return_unit
+end
 
 (** Ingestion benchmarks *)
 module Ingestion = struct
@@ -527,6 +764,7 @@ let run_benchmarks config =
   Fmt.printf "  Warmup runs:      %d\n" config.warmup_runs;
   Fmt.printf "  Benchmark runs:   %d\n" config.benchmark_runs;
   Fmt.printf "  Retrieval samples: %d\n" config.retrieval_samples;
+  Fmt.printf "  Pattern samples:  %d\n" config.pattern_samples;
 
   let start_time = Unix.gettimeofday () in
 
@@ -539,6 +777,7 @@ let run_benchmarks config =
   let%lwt () = Retrieval.benchmark_fen_lookup config in
   let%lwt () = Retrieval.benchmark_similar_search config in
   let%lwt () = Retrieval.benchmark_batch_listing config in
+  let%lwt () = Pattern_analysis.benchmark config in
 
   let total_time = Unix.gettimeofday () -. start_time in
 
@@ -555,6 +794,7 @@ let () =
   let warmup = ref default_config.warmup_runs in
   let runs = ref default_config.benchmark_runs in
   let samples = ref default_config.retrieval_samples in
+  let pattern_samples = ref default_config.pattern_samples in
 
   let usage = "benchmark [options]" in
   let specs =
@@ -564,6 +804,9 @@ let () =
       ("--warmup", Stdlib.Arg.Set_int warmup, "Warmup runs");
       ("--runs", Stdlib.Arg.Set_int runs, "Benchmark runs");
       ("--samples", Stdlib.Arg.Set_int samples, "Retrieval samples");
+      ( "--pattern-samples",
+        Stdlib.Arg.Set_int pattern_samples,
+        "Pattern detection sample size" );
     ]
   in
 
@@ -576,6 +819,7 @@ let () =
       warmup_runs = !warmup;
       benchmark_runs = !runs;
       retrieval_samples = !samples;
+      pattern_samples = Int.max 0 !pattern_samples;
     }
   in
 

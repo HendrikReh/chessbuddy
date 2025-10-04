@@ -47,7 +47,7 @@ ChessBuddy now ships a full pattern-detection pipeline and query surface:
 | **M2** – Detector framework | Pattern interfaces, pawn structure helpers, detectors | ✅ Done | `lib/patterns/*`, `lib/chess/pawn_structure.ml`, unit tests in `test_pattern_detectors.ml`. |
 | **M3** – Ingestion integration | Pipeline wiring, persistence, backfill hooks | ✅ Done | `Ingestion_pipeline` calls registry; detections stored with metadata. |
 | **M4** – Query experience | Database query, retrieve CLI enhancements | ✅ Done | `Database.query_games_with_pattern` covers all filters; CLI supports export formats. |
-| **M5** – Validation & QA | Accuracy datasets, precision/recall, benchmarks | 🔄 In progress | Needs curated PGNs, false-positive review, integration benchmarks. |
+| **M5** – Validation & QA | Accuracy datasets, precision/recall, benchmarks | 🔄 In progress | Harness implemented (`benchmark/benchmark.exe --pattern-samples`); still needs curated PGNs and sustained false-positive review. |
 | **M6** – Operations rollout | Monitoring, docs, production checklist | 🔄 Planned | To follow once QA metrics stabilise. |
 
 ---
@@ -93,7 +93,7 @@ ChessBuddy now ships a full pattern-detection pipeline and query surface:
 ### 5.1 Validation & Quality (Milestone 5)
 - **Curate labelled PGNs** for each detector (queenside breakthroughs, classic Greek gift games, Lucena/Philidor endgames) under `data/validation/`.
 - **Automate precision/recall checks** in `test/test_pattern_detectors.ml` using labelled truth sets; target ≥90% precision, ≥85% recall per pattern.
-- **Benchmark throughput** (`benchmark/pattern_analysis.ml`) to keep ≥100 games/sec on Apple M2 Pro baseline; record results in `benchmark/README.md`.
+- **Benchmark throughput** with `dune exec benchmark/benchmark.exe -- --pattern-samples 50` (target ≥100 detections/sec on Apple M2 Pro); capture runs in `benchmark/README.md` for regression tracking.
 - **False-positive triage** via `pattern_validation` table (manual review workflow).
 
 ### 5.2 Operationalisation (Milestone 6)

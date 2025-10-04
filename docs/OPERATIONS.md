@@ -497,6 +497,24 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 
 ## Performance Tuning
 
+### Pattern Detection Benchmark Harness
+
+Run the benchmark executable to profile detector throughput and confidence on a live dataset. The harness replays registered pattern detectors against a sample of stored games and reports per-pattern timing, detection rate, success rate, and confidence.
+
+```bash
+dune exec benchmark/benchmark.exe -- \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --pattern-samples 50 \
+  --samples 200
+```
+
+Key interpretation notes:
+- **Detection Time Summary**: For each pattern, the tool prints count, percentile breakdowns, and throughput (games per second). Track regressions between releases.
+- **Detections / Success Rate**: Use the percentage lines to spot false positives (high detection, low success) or regressions (unexpected drop in detections on known data).
+- **Average Confidence & Outcome Counts**: Baseline confidence per motif; flag sudden drops (<0.5) or spikes in `defeat/draw_neutral` outcomes as signals to retrain detectors.
+
+> Tip: Run the harness after major detector changes or ingestion backfills. Persist the console output (or redirect to a log file) so you can compare historical baselines.
+
 ### Database Optimization
 
 #### PostgreSQL Configuration

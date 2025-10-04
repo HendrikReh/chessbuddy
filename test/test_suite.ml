@@ -13,4 +13,5 @@ let () =
          ("Retrieve CLI", Test_retrieve_cli.tests);
          ("Ingest CLI", Test_ingest_cli.tests);
          ("Chess Engine", Test_chess_engine.tests);
+         ("Pattern Detectors", Test_pattern_detectors.suite);
        ])

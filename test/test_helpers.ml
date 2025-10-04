@@ -50,6 +50,9 @@ let cleanup_test_data pool =
   let delete_game_themes =
     (Caqti_type.unit -->. Caqti_type.unit) @:- "DELETE FROM game_themes"
   in
+  let delete_pattern_detections =
+    (Caqti_type.unit -->. Caqti_type.unit) @:- "DELETE FROM pattern_detections"
+  in
   let delete_games =
     (Caqti_type.unit -->. Caqti_type.unit) @:- "DELETE FROM games"
   in
@@ -74,6 +77,7 @@ let cleanup_test_data pool =
 
   let%lwt () = exec_query pool delete_games_positions () in
   let%lwt () = exec_query pool delete_game_themes () in
+  let%lwt () = exec_query pool delete_pattern_detections () in
   let%lwt () = exec_query pool delete_games () in
   let%lwt () = exec_query pool delete_fen_embeddings () in
   let%lwt () = exec_query pool delete_fens () in

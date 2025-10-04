@@ -6,7 +6,10 @@
     handling. *)
 
 open! Base
+open Lwt.Infix
 module Db = Database
+
+let () = Patterns.register_all ()
 
 module type EMBEDDER = sig
   val version : string
@@ -156,6 +159,46 @@ let process_move pool ~game_id ~(embedder : (module EMBEDDER))
     ~side_to_move ~castling ~en_passant ~material_signature
     ~version:Embedder.version ~embedder:search_embedder
 
+let outcome_to_text = function
+  | Pattern_detector.Victory -> Some "victory"
+  | Pattern_detector.DrawAdvantage -> Some "draw_advantage"
+  | Pattern_detector.DrawNeutral -> Some "draw_neutral"
+  | Pattern_detector.Defeat -> Some "defeat"
+
+let metadata_to_json metadata extra_fields =
+  let base = metadata @ extra_fields in
+  `Assoc base
+
+let analyze_patterns pool ~game_id ~(game : Types.Game.t) =
+  let detectors = Pattern_detector.Registry.list () in
+  Lwt_list.iter_s
+    (fun (module D : Pattern_detector.PATTERN_DETECTOR) ->
+      D.detect ~moves:game.moves ~result:game.header.result >>= fun detection ->
+      if not detection.detected then Lwt.return_unit
+      else
+        match detection.initiating_color with
+        | None -> Lwt.return_unit
+        | Some detected_by ->
+            D.classify_success ~detection ~result:game.header.result
+            >>= fun (success, outcome) ->
+            let metadata =
+              metadata_to_json detection.metadata
+                [
+                  ("pattern_id", `String D.pattern_id);
+                  ("pattern_name", `String D.pattern_name);
+                ]
+            in
+            let outcome_text = outcome_to_text outcome in
+            let%lwt res =
+              Db.record_pattern_detection pool ~game_id ~pattern_id:D.pattern_id
+                ~detected_by ~success ~confidence:detection.confidence
+                ~start_ply:detection.start_ply ~end_ply:detection.end_ply
+                ~outcome:outcome_text ~metadata
+            in
+            let%lwt () = or_fail res in
+            Lwt.return_unit)
+    detectors
+
 let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id
     ~(game : Types.Game.t) ~source_path ~batch_label ~search_embedder =
   let%lwt white_id =
@@ -170,9 +213,12 @@ let process_game pool ~(embedder : (module EMBEDDER)) ~batch_id
     record_game pool ~batch_id ~white_id ~black_id ~game ~source_path
       ~batch_label ~search_embedder
   in
-  Lwt_list.iter_s
-    (fun move -> process_move pool ~game_id ~embedder ~move ~search_embedder)
-    game.moves
+  let%lwt () =
+    Lwt_list.iter_s
+      (fun move -> process_move pool ~game_id ~embedder ~move ~search_embedder)
+      game.moves
+  in
+  analyze_patterns pool ~game_id ~game
 
 let ingest_file (module Source : PGN_SOURCE) pool
     ~(embedder : (module EMBEDDER)) ~pgn_path ~batch_label ~search_embedder () =

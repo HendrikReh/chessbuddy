@@ -1,5 +1,7 @@
 open! Base
 
+(* Core type definitions. *)
+
 type detection_result = {
   detected : bool;
   confidence : float;
@@ -8,10 +10,13 @@ type detection_result = {
   end_ply : int option;
   metadata : (string * Yojson.Safe.t) list;
 }
-(** Result produced by a pattern detector before success classification. *)
+(** Result produced by a pattern detector. *)
 
-(** High-level outcome returned by success classifiers. *)
-type success_outcome = Victory | DrawAdvantage | DrawNeutral | Defeat
+type success_outcome =
+  | Victory
+  | DrawAdvantage
+  | DrawNeutral
+  | Defeat  (** High-level outcome returned by success classifiers. *)
 
 module type PATTERN_DETECTOR = sig
   val pattern_id : string

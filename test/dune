@@ -9,7 +9,8 @@
   test_search_service
   test_retrieve_cli
   test_ingest_cli
-  test_chess_engine)
+  test_chess_engine
+  test_pattern_detectors)
  (libraries
   chessbuddy.core
   chessbuddy.retrieve_cli

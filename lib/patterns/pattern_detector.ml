@@ -1,4 +1,5 @@
 open! Base
+(* Core type definitions for pattern detectors. *)
 
 type detection_result = {
   detected : bool;
@@ -8,7 +9,6 @@ type detection_result = {
   end_ply : int option;
   metadata : (string * Yojson.Safe.t) list;
 }
-(** Result produced by a pattern detector before success classification. *)
 
 (** High-level outcome returned by success classifiers. *)
 type success_outcome = Victory | DrawAdvantage | DrawNeutral | Defeat
@@ -28,7 +28,8 @@ module type PATTERN_DETECTOR = sig
 end
 
 module Registry = struct
-  let detectors = Hashtbl.create (module String)
+  let detectors : (module PATTERN_DETECTOR) Hashtbl.M(String).t =
+    Hashtbl.create (module String)
 
   let register (module D : PATTERN_DETECTOR) =
     if not (Hashtbl.mem detectors D.pattern_id) then

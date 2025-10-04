@@ -112,6 +112,21 @@ type game_overview = {
   result : string;
   move_count : int;
 }
+
+type pattern_game = {
+  game_id : Uuidm.t;
+  game_date : Ptime.t option;
+  event : string option;
+  white_player : string;
+  black_player : string;
+  result : string;
+  move_count : int;
+  eco : string option;
+  opening : string option;
+  detected_by : Chess_engine.color;
+  confidence : float;
+  outcome : string option;
+}
 (** Summary view for game listings *)
 
 type player_overview = {
@@ -351,32 +366,6 @@ val search_documents :
   limit:int ->
   (search_hit list, Caqti_error.t) Result.t Lwt.t
 
-[@@@ocaml.warning "-32"]
-
-val record_pattern_detection :
-  Pool.t ->
-  game_id:Uuidm.t ->
-  pattern_id:string ->
-  detected_by:Chess_engine.color ->
-  success:bool ->
-  confidence:float ->
-  start_ply:int option ->
-  end_ply:int option ->
-  outcome:string option ->
-  metadata:Yojson.Safe.t ->
-  (unit, Caqti_error.t) Result.t Lwt.t
-
-val query_games_with_pattern :
-  Pool.t ->
-  pattern_ids:string list ->
-  success:bool ->
-  min_confidence:float option ->
-  limit:int ->
-  offset:int ->
-  (game_overview list, Caqti_error.t) Result.t Lwt.t
-
-[@@@ocaml.warning "+32"]
-
 val record_pattern_detection :
   Pool.t ->
   game_id:Uuidm.t ->
@@ -400,9 +389,15 @@ val query_games_with_pattern :
   opening_substring:string option ->
   min_white_elo:int option ->
   min_rating_difference:int option ->
+  min_move_count:int option ->
+  start_date:Ptime.t option ->
+  end_date:Ptime.t option ->
+  white_name_substring:string option ->
+  black_name_substring:string option ->
+  result_filter:string option ->
   limit:int ->
   offset:int ->
-  (game_overview list, Caqti_error.t) Result.t Lwt.t
+  (pattern_game list, Caqti_error.t) Result.t Lwt.t
 (** [search_documents pool ~query_embedding ~entity_types ~limit] performs
     hybrid search.
 

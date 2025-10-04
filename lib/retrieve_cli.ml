@@ -2,6 +2,7 @@ open! Base
 open Cmdliner
 open Chessbuddy
 module Fmt = Stdlib.Format
+module Yojson = Yojson.Safe
 
 let uri_conv : Uri.t Arg.conv =
   let parse s =
@@ -23,6 +24,72 @@ let uuid_conv : Uuidm.t Arg.conv =
   in
   let print fmt uuid = Fmt.pp_print_string fmt (Uuidm.to_string uuid) in
   Arg.conv ~docv:"UUID" (parse, print)
+
+let color_conv : Chess_engine.color Arg.conv =
+  let parse = function
+    | "white" | "w" -> Ok Chess_engine.White
+    | "black" | "b" -> Ok Chess_engine.Black
+    | s -> Error (`Msg (Fmt.asprintf "invalid color %S (use white|black)" s))
+  in
+  let print fmt = function
+    | Chess_engine.White -> Fmt.pp_print_string fmt "white"
+    | Chess_engine.Black -> Fmt.pp_print_string fmt "black"
+  in
+  Arg.conv ~docv:"COLOR" (parse, print)
+
+let color_to_string = function
+  | Chess_engine.White -> "white"
+  | Chess_engine.Black -> "black"
+
+let date_conv : Ptime.t Arg.conv =
+  let parse s =
+    try
+      Stdlib.Scanf.sscanf s "%d-%d-%d" (fun year month day ->
+          match Ptime.of_date (year, month, day) with
+          | Some t -> Ok t
+          | None ->
+              Error
+                (`Msg (Fmt.asprintf "invalid date %S (expect YYYY-MM-DD)" s)))
+    with _ ->
+      Error (`Msg (Fmt.asprintf "invalid date %S (expect YYYY-MM-DD)" s))
+  in
+  let print fmt t =
+    let year, month, day = Ptime.to_date t in
+    Fmt.fprintf fmt "%04d-%02d-%02d" year month day
+  in
+  Arg.conv ~docv:"YYYY-MM-DD" (parse, print)
+
+let result_conv : string Arg.conv =
+  let parse s =
+    match String.strip s with
+    | ("1-0" | "0-1" | "1/2-1/2" | "*") as r -> Ok r
+    | other ->
+        Error
+          (`Msg
+             (Fmt.asprintf "invalid result %S (use 1-0, 0-1, 1/2-1/2, or *)"
+                other))
+  in
+  let print fmt r = Fmt.pp_print_string fmt r in
+  Arg.conv ~docv:"RESULT" (parse, print)
+
+type output_format = Table | Json | Csv
+
+let output_format_conv : output_format Arg.conv =
+  let parse = function
+    | "table" -> Ok Table
+    | "json" -> Ok Json
+    | "csv" -> Ok Csv
+    | other ->
+        Error
+          (`Msg
+             (Fmt.asprintf "invalid output format %S (use table|json|csv)" other))
+  in
+  let print fmt = function
+    | Table -> Fmt.pp_print_string fmt "table"
+    | Json -> Fmt.pp_print_string fmt "json"
+    | Csv -> Fmt.pp_print_string fmt "csv"
+  in
+  Arg.conv ~docv:"FORMAT" (parse, print)
 
 let format_exn = function
   | Failure msg -> msg
@@ -187,21 +254,25 @@ let games_action uri page page_size interactive =
       let offset = (current_page - 1) * size in
       let* games_res = Database.list_games pool ~limit:size ~offset in
       let* games = fail_on_error games_res in
-      if List.is_empty games then
-        Fmt.printf "No games found for page %d.@." current_page
-      else (
-        Fmt.printf "%-10s  %-24s  %-20s  %-20s  %-5s  %-6s  %-36s@." "Date"
-          "Event" "White" "Black" "Moves" "Result" "Game ID";
-        List.iter games ~f:(fun game ->
-            let date_str = format_date_opt game.Database.game_date in
-            let event =
-              match game.event with None -> "-" | Some e -> truncate 24 e
-            in
-            let white = truncate 20 game.white_player in
-            let black = truncate 20 game.black_player in
-            Fmt.printf "%-10s  %-24s  %-20s  %-20s  %5d  %-6s  %s@." date_str
-              event white black game.move_count game.result
-              (Uuidm.to_string game.game_id)));
+      let* () =
+        if List.is_empty games then (
+          Fmt.printf "No games found for page %d.@." current_page;
+          Lwt.return_unit)
+        else (
+          Fmt.printf "%-10s  %-24s  %-20s  %-20s  %-5s  %-6s  %-36s@." "Date"
+            "Event" "White" "Black" "Moves" "Result" "Game ID";
+          List.iter games ~f:(fun game ->
+              let date_str = format_date_opt game.game_date in
+              let event =
+                match game.event with None -> "-" | Some e -> truncate 24 e
+              in
+              let white = truncate 20 game.white_player in
+              let black = truncate 20 game.black_player in
+              Fmt.printf "%-10s  %-24s  %-20s  %-20s  %5d  %-6s  %s@." date_str
+                event white black game.move_count game.result
+                (Uuidm.to_string game.game_id));
+          Lwt.return_unit)
+      in
       Fmt.printf "Page %d (page size %d).@." current_page size;
       Fmt.printf "@?";
       Lwt.return games
@@ -328,6 +399,131 @@ let player_action uri name limit =
   in
   run_lwt action
 
+let option_to_yojson f = function None -> `Null | Some v -> f v
+
+let pattern_action uri pattern_ids detected_by success min_confidence eco_prefix
+    opening_substring min_white_elo min_rating_diff min_move_count start_date
+    end_date white_name_substring black_name_substring result_filter
+    output_format limit offset =
+  let action () =
+    if List.is_empty pattern_ids then (
+      Fmt.printf "Provide at least one --pattern identifier.@.";
+      Lwt.return_unit)
+    else
+      Ingestion_pipeline.with_pool uri (fun pool ->
+          let* games_res =
+            Database.query_games_with_pattern pool ~pattern_ids ~detected_by
+              ~success ~min_confidence ~eco_prefix ~opening_substring
+              ~min_white_elo ~min_rating_difference:min_rating_diff
+              ~min_move_count ~start_date ~end_date ~white_name_substring
+              ~black_name_substring ~result_filter ~limit ~offset
+          in
+          let* games = fail_on_error games_res in
+          if List.is_empty games then (
+            Fmt.printf "No games matched the provided filters.@.";
+            Lwt.return_unit)
+          else
+            match output_format with
+            | Table ->
+                Fmt.printf
+                  "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5s  %-6s  %-8s  \
+                   %-36s@."
+                  "Date" "Event" "ECO" "White" "Black" "Res" "Moves" "Color"
+                  "Conf" "Game ID";
+                let () =
+                  List.iter games ~f:(fun game ->
+                      let date_str = format_date_opt game.game_date in
+                      let event =
+                        match game.event with
+                        | None -> "-"
+                        | Some e -> truncate 20 e
+                      in
+                      let eco = Option.value ~default:"-" game.eco in
+                      let white = truncate 18 game.white_player in
+                      let black = truncate 18 game.black_player in
+                      let conf = Printf.sprintf "%.2f" game.confidence in
+                      let outcome = Option.value ~default:"-" game.outcome in
+                      Fmt.printf
+                        "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5d  %-6s  \
+                         %-8s  %-36s@."
+                        date_str event eco white black game.result
+                        game.move_count
+                        (color_to_string game.detected_by)
+                        (Printf.sprintf "%s/%s" conf outcome)
+                        (Uuidm.to_string game.game_id);
+                      Option.iter game.opening ~f:(fun opening ->
+                          Fmt.printf "            Opening: %s@."
+                            (truncate 80 opening)))
+                in
+                Lwt.return_unit
+            | Json ->
+                let json =
+                  `List
+                    (List.map games ~f:(fun game ->
+                         `Assoc
+                           [
+                             ("game_id", `String (Uuidm.to_string game.game_id));
+                             ( "game_date",
+                               option_to_yojson
+                                 (fun t ->
+                                   let year, month, day = Ptime.to_date t in
+                                   `String
+                                     (Printf.sprintf "%04d-%02d-%02d" year month
+                                        day))
+                                 game.game_date );
+                             ( "event",
+                               option_to_yojson (fun s -> `String s) game.event
+                             );
+                             ( "eco",
+                               option_to_yojson (fun s -> `String s) game.eco );
+                             ( "opening",
+                               option_to_yojson
+                                 (fun s -> `String s)
+                                 game.opening );
+                             ("white_player", `String game.white_player);
+                             ("black_player", `String game.black_player);
+                             ("result", `String game.result);
+                             ("move_count", `Int game.move_count);
+                             ( "detected_by",
+                               `String (color_to_string game.detected_by) );
+                             ("confidence", `Float game.confidence);
+                             ( "outcome",
+                               option_to_yojson
+                                 (fun s -> `String s)
+                                 game.outcome );
+                           ]))
+                in
+                Yojson.pretty_to_channel Stdlib.stdout json;
+                Stdlib.output_char Stdlib.stdout '\n';
+                Lwt.return_unit
+            | Csv ->
+                let escape_csv s =
+                  String.substr_replace_all s ~pattern:"\"" ~with_:"\"\""
+                in
+                Stdlib.print_endline
+                  "date,event,eco,opening,white,black,result,moves,detected_by,confidence,outcome,game_id";
+                let () =
+                  List.iter games ~f:(fun game ->
+                      let date_str = format_date_opt game.game_date in
+                      let event = Option.value ~default:"" game.event in
+                      let opening = Option.value ~default:"" game.opening in
+                      let eco = Option.value ~default:"" game.eco in
+                      let outcome = Option.value ~default:"" game.outcome in
+                      Stdlib.Printf.printf
+                        "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,\"%s\",%.4f,\"%s\",\"%s\"@."
+                        (escape_csv date_str) (escape_csv event)
+                        (escape_csv eco) (escape_csv opening)
+                        (escape_csv game.white_player)
+                        (escape_csv game.black_player)
+                        (escape_csv game.result) game.move_count
+                        (escape_csv (color_to_string game.detected_by))
+                        game.confidence (escape_csv outcome)
+                        (escape_csv (Uuidm.to_string game.game_id)))
+                in
+                Lwt.return_unit)
+  in
+  run_lwt action
+
 let batch_action uri batch_id label limit =
   let action () =
     Ingestion_pipeline.with_pool uri (fun pool ->
@@ -438,7 +634,7 @@ let export_fen_action uri fen_id output_path limit =
             let finally () = Stdlib.close_out_noerr oc in
             Lwt.finalize
               (fun () ->
-                Yojson.Safe.pretty_to_channel oc json;
+                Yojson.pretty_to_channel oc json;
                 Stdlib.output_char oc '\n';
                 Fmt.printf "Written FEN export to %s@." output_path;
                 Lwt.return_unit)
@@ -594,6 +790,136 @@ let player_cmd =
   let term = Term.(ret (const player_action $ db_uri $ player_name $ limit)) in
   Cmd.v info term
 
+let pattern_cmd =
+  let doc = "Filter games by detected strategic or tactical patterns" in
+  let info = Cmd.info "pattern" ~doc in
+  let db_uri =
+    Arg.(
+      required
+      & opt (some uri_conv) None
+      & info [ "db-uri" ] ~doc:"PostgreSQL connection URI")
+  in
+  let patterns =
+    Arg.(
+      value & opt_all string []
+      & info [ "pattern" ]
+          ~doc:"Pattern identifier (repeat to match multiple patterns)"
+          ~docv:"ID")
+  in
+  let detected_by =
+    Arg.(
+      value
+      & opt (some color_conv) None
+      & info [ "detected-by" ]
+          ~doc:"Restrict to detections initiated by a color (white|black)"
+          ~docv:"COLOR")
+  in
+  let success_flag =
+    Arg.(
+      value & opt bool true
+      & info [ "success" ]
+          ~doc:"Require successful execution of the pattern (default: true)")
+  in
+  let min_confidence =
+    Arg.(
+      value
+      & opt (some float) None
+      & info [ "min-confidence" ] ~doc:"Minimum detector confidence threshold"
+          ~docv:"FLOAT")
+  in
+  let eco_prefix =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "eco-prefix" ] ~doc:"ECO prefix to filter openings (e.g. E6, D4)"
+          ~docv:"ECO")
+  in
+  let opening_contains =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "opening-contains" ]
+          ~doc:"Substring to match against opening names" ~docv:"TEXT")
+  in
+  let min_white_elo =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "min-white-elo" ] ~doc:"Minimum white Elo rating required"
+          ~docv:"ELO")
+  in
+  let min_rating_diff =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "min-elo-diff" ] ~doc:"Minimum rating advantage (white - black)"
+          ~docv:"POINTS")
+  in
+  let min_move_count =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "min-move-count" ]
+          ~doc:"Minimum number of recorded moves (plies)" ~docv:"N")
+  in
+  let start_date =
+    Arg.(
+      value
+      & opt (some date_conv) None
+      & info [ "start-date" ] ~doc:"Earliest game date (YYYY-MM-DD)"
+          ~docv:"DATE")
+  in
+  let end_date =
+    Arg.(
+      value
+      & opt (some date_conv) None
+      & info [ "end-date" ] ~doc:"Latest game date (YYYY-MM-DD)" ~docv:"DATE")
+  in
+  let white_name_contains =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "white-name-contains" ]
+          ~doc:"Substring to match against white player name" ~docv:"TEXT")
+  in
+  let black_name_contains =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "black-name-contains" ]
+          ~doc:"Substring to match against black player name" ~docv:"TEXT")
+  in
+  let result_filter =
+    Arg.(
+      value
+      & opt (some result_conv) None
+      & info [ "result" ] ~doc:"Match exact PGN result (1-0, 0-1, 1/2-1/2, *)"
+          ~docv:"RESULT")
+  in
+  let output_format =
+    Arg.(
+      value
+      & opt output_format_conv Table
+      & info [ "output" ] ~doc:"Output format: table (default), json, or csv"
+          ~docv:"FORMAT")
+  in
+  let limit =
+    Arg.(value & opt int 10 & info [ "limit" ] ~doc:"Maximum games to return")
+  in
+  let offset =
+    Arg.(value & opt int 0 & info [ "offset" ] ~doc:"Result offset" ~docv:"N")
+  in
+  let term =
+    Term.(
+      ret
+        (const pattern_action $ db_uri $ patterns $ detected_by $ success_flag
+       $ min_confidence $ eco_prefix $ opening_contains $ min_white_elo
+       $ min_rating_diff $ min_move_count $ start_date $ end_date
+       $ white_name_contains $ black_name_contains $ result_filter
+       $ output_format $ limit $ offset))
+  in
+  Cmd.v info term
+
 let batch_cmd =
   let doc = "Summarize ingestion batches" in
   let info = Cmd.info "batch" ~doc in
@@ -656,6 +982,7 @@ let commands =
     similar_cmd;
     game_cmd;
     games_cmd;
+    pattern_cmd;
     fen_cmd;
     player_cmd;
     batch_cmd;

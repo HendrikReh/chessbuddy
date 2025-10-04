@@ -14,10 +14,15 @@
 - ✅ En passant capture and castling rights tracking fixed as part of the integration
 - ✅ `dune runtest` covers the engine + ingestion path end-to-end (all chess engine tests now passing)
 
+**Pattern Detection & Retrieval:**
+- ✅ Strategic, tactical, and endgame detectors run automatically during ingestion and persist to `pattern_detections`
+- ✅ `Database.query_games_with_pattern` gained min/max confidence, rating, ECO, move-count, name, date filters
+- ✅ `retrieve pattern` command outputs table/JSON/CSV formats with optional metadata export and count-only mode
+
 **Documentation & Tooling refresh:**
-- ✅ README badges bumped to v0.0.8 with the new directory map
-- ✅ Release notes capture the modular layout changes
-- ✅ Developer guide updated (this document)
+- ✅ README badges bumped to v0.0.8 with the new directory map and pattern CLI examples
+- ✅ Architecture, Implementation Plan, Operations, and AI Assistant Guide updated to describe the detector pipeline
+- ✅ Developer guide refreshed (this document)
 
 ### Breaking Changes
 
@@ -50,6 +55,7 @@ lib/
 ├── persistence/   # Database (database.ml)
 ├── embedding/     # Embeddings (embedder.ml, openai_client.ml, search_embedder.ml)
 ├── search/        # Search (search_service.ml, search_indexer.ml)
+├── patterns/      # Pattern framework (pattern_detector.ml, strategic/tactical/endgame detectors)
 └── ingestion/     # Pipeline (ingestion_pipeline.ml)
 ```
 
@@ -73,6 +79,8 @@ All public modules have comprehensive interface files with OCamldoc-compatible d
 | [chess_engine.mli](../lib/chess/chess_engine.mli) | Board state tracking and FEN generation | `Board.t`, `Move_parser`, `Fen` | ✅ Stable |
 | [search_service.mli](../lib/search/search_service.mli) | Natural language search | Entity filters, similarity ranking | ✅ Stable |
 | [search_indexer.mli](../lib/search/search_indexer.mli) | Text document indexing | `TEXT_EMBEDDER`, entity summarization | ✅ Stable |
+| [pattern_detector.mli](../lib/patterns/pattern_detector.mli) | Pattern detection framework | `PATTERN_DETECTOR`, registry, detection_result | ✅ Stable |
+| [strategic_patterns.mli](../lib/patterns/strategic_patterns.mli) | Strategic detectors | Queenside majority, minority attack | ✅ Stable |
 | [embedder.mli](../lib/embedding/embedder.mli) | FEN position embedders | `PROVIDER`, `Constant` stub | ✅ Stable |
 | [fen_generator.mli](../lib/chess/fen_generator.mli) | Position notation generation | Game-state-aware FEN utilities | ✅ Stable |
 
@@ -170,8 +178,37 @@ flowchart LR
 - `pgn_source.ml` parses headers and moves, emitting structured games.
 - `fen_generator.ml` uses the chess engine to track board state and emit accurate FENs for every move.
 - `embedder.ml` converts unique FENs into 768-d vectors for semantic queries.
-- `sql/schema.sql` defines relational tables and pgvector-backed similarity
-  capabilities.
+- `pattern_detector` modules run strategic/tactical/endgame analysis during ingestion and persist detections.
+- `sql/schema.sql` defines relational tables, pgvector-backed similarity capabilities, and pattern tables.
+
+### Pattern Retrieval CLI
+
+Use the `pattern` subcommand exposed through `bin/retrieve.exe` to filter games by detected motifs:
+
+```bash
+# King’s Indian queenside majority attack
+ dune exec bin/retrieve.exe -- pattern \
+   --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+   --pattern queenside_majority_attack \
+   --eco-prefix E6 --opening-contains "King's Indian" \
+   --detected-by white --success true \
+   --min-white-elo 2500 --min-elo-diff 100 \
+   --min-confidence 0.7 --limit 5
+
+# Export tactical detections to JSON with metadata
+ dune exec bin/retrieve.exe -- pattern \
+   --db-uri $DB_URI \
+   --pattern greek_gift_sacrifice \
+   --detected-by black --success true \
+   --min-confidence 0.75 \
+   --output json --output-file greek_gift.json \
+   --include-metadata
+```
+
+Flags worth noting:
+- `--max-confidence`, `--min/max-white-elo`, `--min/max-black-elo`, `--min-elo-diff`, `--min/max-move-count`, `--start-date`, `--end-date`, `--white-name-contains`, `--black-name-contains`, `--result`
+- `--output {table|json|csv}`, `--output-file PATH`, `--include-metadata`
+- `--count-only` (skip row output) and `--no-summary` (silence footer)
 
 ### Ingestion Sequence
 
@@ -191,7 +228,10 @@ sequenceDiagram
   Pipe->>DB: Upsert players and batches
   Pipe->>DB: Record game metadata
   Pipe->>FEN: Request FEN before/after move
-  FEN-->>Pipe: Return placeholder FEN strings
+  FEN-->>Pipe: Return accurate FEN strings (via chess engine)
+  Pipe->>Pattern: Run registered detectors
+  Pattern-->>Pipe: Detection results + confidence
+  Pipe->>DB: Persist detections (pattern_detections)
   Pipe->>EMB: Deduplicated FEN needs embedding?
   EMB-->>Pipe: 768-d vector result (async)
   Pipe->>DB: Insert moves, positions, and joins

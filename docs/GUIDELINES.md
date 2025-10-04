@@ -5,9 +5,10 @@ Core OCaml modules live under `lib/` and are kept small and purpose driven:
 - `database.ml` – Caqti-based persistence helpers for PostgreSQL/pgvector
 - `ingestion_pipeline.ml` – Orchestrates PGN ingestion, player upserts, and embedding writes
 - `pgn_source.ml` – Parses PGN headers and SAN moves into structured records
-- `fen_generator.ml` / `.mli` – Placeholder FEN generation utilities
+- `fen_generator.ml` / `.mli` – Stateful FEN generation backed by the chess engine
+- `pattern_detector.ml`, `strategic_patterns.ml`, `tactical_patterns.ml`, `endgame_patterns.ml` – Pattern detection framework and implementations
 - `embedder.ml`, `search_embedder.ml`, `openai_client.ml` – Embedding providers for positions and search documents
-- `search_indexer.ml`, `search_service.ml`, `search_indexer.ml` – Text indexing and query helpers
+- `search_indexer.ml`, `search_service.ml` – Text indexing and hybrid semantic search helpers
 - `types.ml` – Shared record types
 
 CLI entry points live in `bin/`:
@@ -21,7 +22,7 @@ Database schema files live in `sql/`, with PGN samples under `data/`. Tests in `
 - `dune build` – compile everything; add `@install` to verify installability
 - `dune build @doc` – generate HTML API documentation (requires `libpq` via pkg-config)
 - `dune exec bin/ingest.exe -- --help` – inspect ingestion subcommands
-- `dune exec bin/retrieve.exe -- --help` – inspect retrieval subcommands
+- `dune exec bin/retrieve.exe -- --help` – inspect retrieval subcommands (including `pattern`)
 - `dune exec bin/ingest.exe -- --db-uri postgresql://chess:chess@localhost:5433/chessbuddy --pgn data/games/twic1611.pgn --batch-label dev-test` – run a full ingestion
 - `dune runtest` – execute Alcotest suites; set `CHESSBUDDY_REQUIRE_DB_TESTS=1` to fail when PostgreSQL is unavailable
 - `mkdir -p data/db && docker-compose up -d` followed by `psql postgresql://chess:chess@localhost:5433/chessbuddy -f sql/schema.sql` – bootstrap PostgreSQL with pgvector
@@ -48,7 +49,7 @@ Database schema files live in `sql/`, with PGN samples under `data/`. Tests in `
 - The test suite uses Alcotest_lwt; start PostgreSQL via Docker before running `dune runtest`
 - Reuse `Test_helpers.with_clean_db` to reset schema with `sql/schema.sql`
 - Mirror new library behaviour with `test_<behavior>` helpers registered in `test/test_suite.ml`
-- Focus coverage on player upserts, batch dedupe, FEN handling, search indexing, and embedding persistence; add fixtures under `test/fixtures/` when needed
+- Focus coverage on player upserts, batch dedupe, FEN handling, pattern detection, search indexing, and embedding persistence; add fixtures under `test/fixtures/` when needed
 
 ## Commit & Pull Request Guidelines
 - Use imperative, component-scoped commit subjects (e.g., `database: tighten batch dedupe`)

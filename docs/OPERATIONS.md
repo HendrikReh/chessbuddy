@@ -79,6 +79,30 @@ ORDER BY idx_scan DESC;
 
 #### Ingestion Metrics
 
+**Pattern Detection Coverage:**
+```sql
+SELECT
+  pattern_id,
+  COUNT(*) FILTER (WHERE success) AS successful,
+  COUNT(*) AS total,
+  ROUND(AVG(confidence)::numeric, 3) AS avg_confidence,
+  COUNT(DISTINCT game_id) AS games_covered
+FROM pattern_detections
+GROUP BY pattern_id
+ORDER BY total DESC;
+```
+
+```sql
+-- Confidence distribution (bucketed)
+SELECT
+  pattern_id,
+  width_bucket(confidence, 0.0, 1.0, 5) AS bucket,
+  COUNT(*)
+FROM pattern_detections
+GROUP BY pattern_id, bucket
+ORDER BY pattern_id, bucket;
+```
+
 **Batch Statistics:**
 ```sql
 SELECT
@@ -272,6 +296,36 @@ WHERE checksum = 'a3f7b2e...';
 2. **Accidental duplicate:**
    - This is working as designed (prevents duplicate work)
    - Check existing batch with `batches show --id UUID`
+
+#### Pattern Detections Missing or Outdated
+
+**Symptoms:**
+- `pattern` CLI returns zero games despite known matches
+- `pattern_detections` table significantly smaller than expected
+
+**Diagnosis:**
+```sql
+SELECT COUNT(*) FROM pattern_detections;
+SELECT pattern_id, COUNT(*) FROM pattern_detections GROUP BY pattern_id;
+```
+
+1. Confirm ingestion version: ensure pipelines were run after v0.0.8 deployment (look at `ingestion_batches.ingested_at`).
+2. Check detector registry logs (`stdout` warnings) for failures.
+3. Inspect recent application logs for raised exceptions inside detectors.
+
+**Solutions:**
+1. **Backfill recent batches:**
+   ```bash
+   # Re-run ingestion for affected PGNs (idempotent)
+   dune exec bin/ingest.exe -- ingest \
+     --db-uri $DB_URI \
+     --pgn /path/to/file.pgn \
+     --batch-label reprocess-$(date +%Y%m%d)
+   ```
+2. **Manual regeneration script** (when PGN unavailable):
+   - Export game IDs with missing detections and write a small OCaml driver invoking `Ingestion_pipeline.process_game` (see Implementation Plan §5 for guidance).
+3. **Detector bug fix:**
+   - Patch detector logic and re-run ingestion/backfill.
 
 #### Slow Ingestion Performance
 
@@ -697,6 +751,22 @@ dune exec bin/ingest.exe -- ingest \
 
 ### Routine Maintenance
 
+#### Pattern Backfill (when detectors change)
+
+1. **Identify impacted batches:**
+   ```sql
+   SELECT batch_id, ingested_at
+   FROM ingestion_batches
+   WHERE ingested_at < '2025-10-01'  -- example cutoff
+   ORDER BY ingested_at DESC;
+   ```
+2. **Re-run ingestion for each PGN** (preferred): keeps deduplication and embeddings aligned.
+3. **Or run targeted backfill script** that fetches stored moves and replays detectors without re-ingesting players/games.
+4. **Verify counts**:
+   ```sql
+   SELECT pattern_id, COUNT(*) FROM pattern_detections GROUP BY pattern_id;
+   ```
+
 #### Daily Tasks
 
 1. **Monitor disk space**
@@ -888,6 +958,11 @@ dune exec bin/ingest.exe -- health check --db-uri $DB_URI
 # Batch summary
 dune exec bin/ingest.exe -- batches show --db-uri $DB_URI --id <UUID>
 
+# Pattern query
+ dune exec bin/retrieve.exe -- pattern \
+   --db-uri $DB_URI --pattern queenside_majority_attack \
+   --success true --min-confidence 0.7 --limit 10
+
 # Database backup
 docker exec chessbuddy-postgres pg_dump -U chess chessbuddy | gzip > backup.sql.gz
 
@@ -925,3 +1000,4 @@ SELECT * FROM pg_stat_user_indexes WHERE idx_scan < 100;
 - [Architecture](ARCHITECTURE.md) - System design and data flow
 - [Developer Guide](DEVELOPER.md) - Setup and testing
 - [Guidelines](GUIDELINES.md) - Coding standards
+- [Implementation Plan](IMPLEMENTATION_PLAN.md) - Pattern detection roadmap and milestones

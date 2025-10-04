@@ -40,6 +40,12 @@ dune exec benchmark/benchmark.exe -- \
 
 ### Retrieval Benchmarks
 
+**Pattern Analysis (In Progress)**
+- Planned suite to measure throughput of detector pipeline across 1k games
+- Will report detections/sec, average confidence distribution, and per-pattern latency
+- Track in `benchmark/pattern_analysis.ml` (see Implementation Plan §5)
+
+
 **4. Game Retrieval**
 - Fetches complete game details by UUID
 - Tests join performance (games → players, positions)

@@ -409,7 +409,9 @@ let with_output_channel output_file ~binary f =
       Stdlib.flush Stdlib.stdout;
       Lwt.return_unit
   | Some path ->
-      let oc = if binary then Stdlib.open_out_bin path else Stdlib.open_out path in
+      let oc =
+        if binary then Stdlib.open_out_bin path else Stdlib.open_out path
+      in
       Lwt.finalize
         (fun () ->
           let* () = f oc in
@@ -428,7 +430,8 @@ let summarize (games : Database.pattern_game list) =
     if Int.equal count 0 then 0.0 else total_confidence /. Float.of_int count
   in
   let white_count =
-    List.count games ~f:(fun game -> Poly.equal game.detected_by Chess_engine.White)
+    List.count games ~f:(fun game ->
+        Poly.equal game.detected_by Chess_engine.White)
   in
   let black_count = count - white_count in
   let color_summary =
@@ -445,12 +448,13 @@ let summarize (games : Database.pattern_game list) =
         Stdlib.Printf.sprintf ", date %s" (format_date_opt (Some first))
     | Some first, Some last ->
         Stdlib.Printf.sprintf ", dates %s→%s"
-          (format_date_opt (Some first)) (format_date_opt (Some last))
+          (format_date_opt (Some first))
+          (format_date_opt (Some last))
     | _ -> ""
   in
   Stdlib.Printf.sprintf
-    "Matched %d game(s). Avg confidence %.2f. Detected by %s%s."
-    count avg_confidence color_summary date_summary
+    "Matched %d game(s). Avg confidence %.2f. Detected by %s%s." count
+    avg_confidence color_summary date_summary
 
 let pattern_action uri pattern_ids detected_by success min_confidence
     max_confidence eco_prefix opening_substring min_white_elo max_white_elo
@@ -481,8 +485,8 @@ let pattern_action uri pattern_ids detected_by success min_confidence
           else if count_only then (
             (match output_file with
             | Some path ->
-                Fmt.eprintf
-                  "Ignoring --output-file=%s in count-only mode.@." path
+                Fmt.eprintf "Ignoring --output-file=%s in count-only mode.@."
+                  path
             | None -> ());
             if not suppress_summary then Fmt.printf "%s@." summary_text;
             Lwt.return_unit)
@@ -494,13 +498,15 @@ let pattern_action uri pattern_ids detected_by success min_confidence
                   (match output_file with
                   | Some path ->
                       Fmt.eprintf
-                        "Ignoring --output-file=%s for table output; use --output json or --output csv.@."
+                        "Ignoring --output-file=%s for table output; use \
+                         --output json or --output csv.@."
                         path
                   | None -> ());
                   Fmt.printf
-                    "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5s  %-6s  %-8s  %-36s@."
-                    "Date" "Event" "ECO" "White" "Black" "Res" "Moves"
-                    "Color" "Conf" "Game ID";
+                    "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5s  %-6s  %-8s  \
+                     %-36s@."
+                    "Date" "Event" "ECO" "White" "Black" "Res" "Moves" "Color"
+                    "Conf" "Game ID";
                   List.iter games ~f:(fun game ->
                       let date_str = format_date_opt game.game_date in
                       let event =
@@ -514,7 +520,8 @@ let pattern_action uri pattern_ids detected_by success min_confidence
                       let conf = Stdlib.Printf.sprintf "%.2f" game.confidence in
                       let outcome = Option.value ~default:"-" game.outcome in
                       Fmt.printf
-                        "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5d  %-6s  %-8s  %-36s@."
+                        "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5d  %-6s  \
+                         %-8s  %-36s@."
                         date_str event eco white black game.result
                         game.move_count
                         (color_to_string game.detected_by)
@@ -545,17 +552,20 @@ let pattern_action uri pattern_ids detected_by success min_confidence
                                    (fun t ->
                                      let year, month, day = Ptime.to_date t in
                                      `String
-                                       (Stdlib.Printf.sprintf "%04d-%02d-%02d" year month
-                                          day))
+                                       (Stdlib.Printf.sprintf "%04d-%02d-%02d"
+                                          year month day))
                                    game.game_date );
                                ( "event",
-                                 option_to_yojson (fun s -> `String s) game.event
-                               );
+                                 option_to_yojson
+                                   (fun s -> `String s)
+                                   game.event );
                                ( "eco",
-                                 option_to_yojson (fun s -> `String s) game.eco );
-                               ( "opening",
-                                 option_to_yojson (fun s -> `String s) game.opening
+                                 option_to_yojson (fun s -> `String s) game.eco
                                );
+                               ( "opening",
+                                 option_to_yojson
+                                   (fun s -> `String s)
+                                   game.opening );
                                ("white_player", `String game.white_player);
                                ("black_player", `String game.black_player);
                                ("result", `String game.result);
@@ -564,13 +574,16 @@ let pattern_action uri pattern_ids detected_by success min_confidence
                                  `String (color_to_string game.detected_by) );
                                ("confidence", `Float game.confidence);
                                ( "outcome",
-                                 option_to_yojson (fun s -> `String s) game.outcome
-                               );
+                                 option_to_yojson
+                                   (fun s -> `String s)
+                                   game.outcome );
                                ( "start_ply",
-                                 option_to_yojson (fun i -> `Int i) game.start_ply
-                               );
+                                 option_to_yojson
+                                   (fun i -> `Int i)
+                                   game.start_ply );
                                ( "end_ply",
-                                 option_to_yojson (fun i -> `Int i) game.end_ply );
+                                 option_to_yojson (fun i -> `Int i) game.end_ply
+                               );
                                ("metadata", game.metadata);
                              ]))
                   in
@@ -590,8 +603,7 @@ let pattern_action uri pattern_ids detected_by success min_confidence
                   in
                   let header =
                     "date,event,eco,opening,white,black,result,moves,detected_by,confidence,outcome,start_ply,end_ply"
-                    ^
-                    (if include_metadata then ",metadata" else "")
+                    ^ (if include_metadata then ",metadata" else "")
                     ^ ",game_id"
                   in
                   with_output_channel output_file ~binary:false (fun oc ->
@@ -624,8 +636,8 @@ let pattern_action uri pattern_ids detected_by success min_confidence
                             (escape_csv game.black_player)
                             (escape_csv game.result) game.move_count
                             (escape_csv (color_to_string game.detected_by))
-                            game.confidence (escape_csv outcome)
-                            start_ply_str end_ply_str
+                            game.confidence (escape_csv outcome) start_ply_str
+                            end_ply_str
                             (if include_metadata then
                                "," ^ escape_csv metadata_str
                              else ",")
@@ -1068,22 +1080,19 @@ let pattern_cmd =
   in
   let include_metadata =
     Arg.(
-      value
-      & flag
+      value & flag
       & info [ "include-metadata" ]
           ~doc:"Include detector metadata column/details in outputs")
   in
   let count_only =
     Arg.(
-      value
-      & flag
+      value & flag
       & info [ "count-only" ]
           ~doc:"Only report summary statistics (skip individual game rows)")
   in
   let suppress_summary =
     Arg.(
-      value
-      & flag
+      value & flag
       & info [ "no-summary" ]
           ~doc:"Suppress summary footer (useful for scripting)")
   in

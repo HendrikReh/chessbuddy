@@ -639,31 +639,48 @@ let date_to_string = function
 let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
     ~min_confidence ~max_confidence ~eco_prefix ~opening_substring
     ~min_white_elo ~max_white_elo ~min_black_elo ~max_black_elo
-    ~min_rating_difference ~min_move_count ~max_move_count ~start_date
-    ~end_date ~white_name_substring ~black_name_substring ~result_filter ~limit
-    ~offset =
+    ~min_rating_difference ~min_move_count ~max_move_count ~start_date ~end_date
+    ~white_name_substring ~black_name_substring ~result_filter ~limit ~offset =
   let open Caqti_request.Infix in
   let params_type =
     let open Caqti_type in
     let base = t2 int int in
-    let base = t2 (option string) base in (* result_filter *)
-    let base = t2 (option string) base in (* black_name_substring *)
-    let base = t2 (option string) base in (* white_name_substring *)
-    let base = t2 (option string) base in (* end_date *)
-    let base = t2 (option string) base in (* start_date *)
-    let base = t2 (option int) base in (* max_move_count *)
-    let base = t2 (option int) base in (* min_move_count *)
-    let base = t2 (option int) base in (* min_rating_difference *)
-    let base = t2 (option int) base in (* max_black_elo *)
-    let base = t2 (option int) base in (* min_black_elo *)
-    let base = t2 (option int) base in (* max_white_elo *)
-    let base = t2 (option int) base in (* min_white_elo *)
-    let base = t2 (option string) base in (* opening_substring *)
-    let base = t2 (option string) base in (* eco_prefix *)
-    let base = t2 (option string) base in (* detected_by *)
-    let base = t2 (option float) base in (* max_confidence *)
-    let base = t2 float base in (* min_confidence *)
-    let base = t2 bool base in (* success flag *)
+    let base = t2 (option string) base in
+    (* result_filter *)
+    let base = t2 (option string) base in
+    (* black_name_substring *)
+    let base = t2 (option string) base in
+    (* white_name_substring *)
+    let base = t2 (option string) base in
+    (* end_date *)
+    let base = t2 (option string) base in
+    (* start_date *)
+    let base = t2 (option int) base in
+    (* max_move_count *)
+    let base = t2 (option int) base in
+    (* min_move_count *)
+    let base = t2 (option int) base in
+    (* min_rating_difference *)
+    let base = t2 (option int) base in
+    (* max_black_elo *)
+    let base = t2 (option int) base in
+    (* min_black_elo *)
+    let base = t2 (option int) base in
+    (* max_white_elo *)
+    let base = t2 (option int) base in
+    (* min_white_elo *)
+    let base = t2 (option string) base in
+    (* opening_substring *)
+    let base = t2 (option string) base in
+    (* eco_prefix *)
+    let base = t2 (option string) base in
+    (* detected_by *)
+    let base = t2 (option float) base in
+    (* max_confidence *)
+    let base = t2 float base in
+    (* min_confidence *)
+    let base = t2 bool base in
+    (* success flag *)
     t2 string_array base
   in
   let query =
@@ -683,6 +700,7 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
                                            (t2 (option string)
                                               (t2 (option int)
                                                  (t2 (option int) string))))))))))))))
+    )
     @:- {sql|
       SELECT g.game_id,
              g.game_date,
@@ -729,7 +747,7 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
         AND g.result = COALESCE(?::text, g.result)
       ORDER BY g.game_date DESC, g.ingested_at DESC
       LIMIT ? OFFSET ?
-    |sql})
+    |sql}
   in
   let detected_by_param = Option.map detected_by ~f:color_to_text in
   let min_conf = Option.value ~default:0.0 min_confidence in

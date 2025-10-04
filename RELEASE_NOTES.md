@@ -1,18 +1,25 @@
 # Release Notes
 
-## Version 0.0.8 - Modular Library Layout
+## Version 0.0.8 – Pattern Detection & Library Modularisation
 
 ### Overview
-Reorganizes the `lib/` tree into functional subdirectories (core, chess, persistence, embedding, search, ingestion) while keeping a single wrapped library via Dune’s `include_subdirs` to avoid circular dependencies. Documentation and version metadata have been updated to match the new structure.
+Delivers the end-to-end pattern detection framework, advanced retrieval filters, and a modularised `lib/` layout. ChessBuddy can now answer generalized pattern questions (e.g., successful queenside majority attacks in the King’s Indian) out of the box.
 
-### Changes
-- Moved modules into dedicated subdirectories and surfaced them under the `Chessbuddy` namespace.
-- Enabled `(include_subdirs unqualified)` in `lib/dune` so existing module references remain stable despite the file moves.
-- Updated README with the directory map, refreshed API reference paths, and bumped project version to 0.0.8.
-- Confirmed the build (`dune build`) and test suite (`dune runtest`) succeed after the reorganisation.
+### Highlights
+- **Extensible detectors** covering strategic (queenside majority, minority attack), tactical (Greek gift sacrifice), and endgame (Lucena, Philidor) motifs.
+- **Pattern persistence** with rich metadata (`pattern_detections`, `pattern_catalog`), confidence scoring, start/end ply, and outcome tracking.
+- **Retrieve CLI upgrades**: `pattern` command exposes confidence ceilings, ECO/opening filters, rating bounds, move-count ranges, date/name filters, and supports table/JSON/CSV output with optional metadata export.
+- **Database API expansion**: `Database.query_games_with_pattern` now honours min/max confidence, full rating span constraints, and move-count gating while returning parsed JSON metadata.
+- **Library reorganisation**: `lib/` split into `core/`, `chess/`, `persistence/`, `embedding/`, `search/`, `ingestion/`, and `patterns/` while remaining wrapped under the `Chessbuddy` namespace.
+- **Documentation sweep**: README, Architecture, Developer, Operations, AI Assistant Guide, and Implementation Plan refreshed to describe the pattern pipeline, CLI options, and operational workflows.
 
-### Notes
-No database schema or runtime behaviour changes were required for this release.
+### Breaking Changes
+None – module namespaces remain stable; new functionality is additive.
+
+### Migration Notes
+1. Run the pattern framework migration (`psql $DB_URI -f sql/migrations/001_pattern_framework.sql`).
+2. Re-run ingestion or execute the Analyzer CLI to backfill `pattern_detections` for historical games.
+3. Review `docs/IMPLEMENTATION_PLAN.md` §5 for validation/monitoring follow-up tasks.
 
 ## Version 0.0.7 - Accurate FEN Generation with Chess Engine Integration
 

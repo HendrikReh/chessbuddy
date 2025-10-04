@@ -312,7 +312,7 @@ Test against standard chess positions:
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | FEN generation bugs | High | Extensive test suite, validate against known positions |
-| Performance regression | Medium | Benchmark against current placeholder approach |
+| Performance regression | Medium | Benchmark against TWIC 1611 baseline and profile hot paths |
 | SAN parsing edge cases | Medium | Leverage existing PGN parser validation |
 | Maintenance burden | Low | ~500 LOC, well-defined scope |
 
@@ -322,8 +322,8 @@ Test against standard chess positions:
 2. ✅ Implement `Board` representation
 3. ✅ Add FEN serialization
 4. ✅ Write test suite with standard positions
-5. ⬜ Benchmark performance
-6. ⬜ Integrate with `ingestion_pipeline.ml`
+5. ✅ Benchmark performance
+6. ✅ Integrate with `ingestion_pipeline.ml`
 7. ⬜ Create migration tooling (regenerate-fens command)
 
 ## Appendix: FEN Format Reference

@@ -1294,6 +1294,7 @@ When working on an OCaml 5.1+ project:
 - **Persist benchmark baselines**: record throughput/latency metrics in docs (`README`, `RELEASE_NOTES`) to detect regressions
 - **Shallow copy state**: ensure pure helpers aren’t mutating shared structures (critical for board state / caches)
 - **Short-circuit where possible**: bail out on work when data already matches target state (e.g., embedding version unchanged)
+- **Regenerate pattern detections deliberately**: run migrations/backfills when detector logic changes; avoid duplicating rows thanks to `UNIQUE(game_id, pattern_id, detected_by_color)`
 
 ### Environment Prerequisites
 

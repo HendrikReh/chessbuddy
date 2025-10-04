@@ -15,8 +15,6 @@ graph TB
 
     subgraph "Application Layer"
         IngestCLI[Ingest CLI<br/>bin/ingest.exe]
-        QueryCLI[Query CLI<br/>bin/query.exe]
-        AnalyzeCLI[Analyze CLI<br/>bin/analyze.exe]
         RetrieveCLI[Retrieve CLI<br/>bin/retrieve.exe]
     end
 
@@ -47,23 +45,20 @@ graph TB
 
     User --> CLI
     CLI --> IngestCLI
-    CLI --> QueryCLI
-    CLI --> AnalyzeCLI
     CLI --> RetrieveCLI
 
     IngestCLI --> IngestionPipeline
-    QueryCLI --> SearchService
-    AnalyzeCLI --> GameAnalyzer
     RetrieveCLI --> Database
+    RetrieveCLI --> SearchService
 
     IngestionPipeline --> PGNParser
     IngestionPipeline --> ChessEngine
     IngestionPipeline --> FENGen
+    IngestionPipeline --> PatternDetector
     IngestionPipeline --> Embedder
     IngestionPipeline --> Database
 
-    GameAnalyzer --> PatternDetector
-    GameAnalyzer --> Database
+    PatternDetector --> Database
 
     SearchService --> Database
     SearchService --> Embedder
@@ -85,8 +80,8 @@ graph TB
     classDef externalLayer fill:#fafafa,stroke:#616161,stroke-width:2px
 
     class User,CLI userLayer
-    class IngestCLI,QueryCLI,AnalyzeCLI,RetrieveCLI appLayer
-    class PGNParser,ChessEngine,FENGen,PatternDetector,Embedder,SearchService,IngestionPipeline,GameAnalyzer logicLayer
+    class IngestCLI,RetrieveCLI appLayer
+    class PGNParser,ChessEngine,FENGen,PatternDetector,Embedder,SearchService,IngestionPipeline logicLayer
     class Database,PoolMgr dataLayer
     class PostgreSQL,PgVector storageLayer
     class PGNFiles externalLayer
@@ -104,6 +99,7 @@ sequenceDiagram
     participant PGN as PGN Parser
     participant Chess as Chess Engine
     participant FEN as FEN Generator
+    participant Pattern as Pattern Detectors
     participant Embed as Embedder
     participant DB as Database
     participant PG as PostgreSQL
@@ -140,6 +136,14 @@ sequenceDiagram
             Chess-->>FEN: Position data
             FEN-->>Pipeline: FEN string
 
+            Pipeline->>Pattern: Run detectors
+            Pattern-->>Pipeline: detection results
+            alt Pattern detected
+                Pipeline->>DB: Record pattern detection
+                DB->>PG: INSERT INTO pattern_detections
+                PG-->>DB: detection_id
+            end
+
             Pipeline->>DB: Deduplicate FEN
             DB->>PG: INSERT INTO fens<br/>ON CONFLICT DO NOTHING
             PG-->>DB: fen_id
@@ -170,56 +174,24 @@ sequenceDiagram
 
 ---
 
-## Pattern Analysis Flow
+## Pattern Retrieval Flow
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant CLI as Analyze CLI
-    participant Analyzer as Game Analyzer
-    participant Registry as Pattern Registry
-    participant Detector as Pattern Detectors
-    participant Chess as Chess Engine
+    participant CLI as Retrieve CLI (pattern command)
     participant DB as Database
     participant PG as PostgreSQL
 
-    User->>CLI: dune exec bin/analyze.exe<br/>--batch-id UUID<br/>--pattern-types tactical
-    CLI->>Registry: Get detectors by type
-    Registry-->>CLI: [Greek_gift, ...]
+    User->>CLI: dune exec bin/retrieve.exe<br/>pattern --pattern ID --success true --min-confidence 0.7
 
-    CLI->>DB: Fetch games in batch
-    DB->>PG: SELECT FROM games<br/>WHERE batch_id = UUID
-    PG-->>DB: game_ids
-    DB-->>CLI: game_ids
+    CLI->>DB: query_games_with_pattern(params)
+    DB->>PG: SELECT g.*, pd.*<br/>FROM games g<br/>JOIN pattern_detections pd ON g.game_id = pd.game_id<br/>WHERE pd.pattern_id = $1 AND pd.success = true
 
-    loop For each game (parallel)
-        CLI->>Analyzer: Analyze game
+    PG-->>DB: rows (game metadata + detection info)
+    DB-->>CLI: pattern_game list
 
-        Analyzer->>DB: Fetch game details + moves
-        DB->>PG: SELECT games_positions<br/>JOIN games
-        PG-->>DB: moves with FENs
-        DB-->>Analyzer: game_detail
-
-        loop For each pattern detector
-            Analyzer->>Detector: detect(moves, result)
-
-            Detector->>Chess: Analyze positions
-            Chess-->>Detector: Board states
-
-            Detector-->>Analyzer: detection_result<br/>{detected, confidence, metadata}
-
-            Analyzer->>Detector: classify_success(detection, result)
-            Detector-->>Analyzer: (success, outcome)
-
-            alt Pattern detected
-                Analyzer->>DB: Record detection
-                DB->>PG: INSERT INTO pattern_detections<br/>(pattern_id, confidence, outcome, ...)
-                PG-->>DB: detection_id
-            end
-        end
-    end
-
-    CLI-->>User: ✅ Analyzed X games<br/>Y patterns detected
+    CLI-->>User: Table/JSON/CSV output<br/>with confidence, colour, outcome, metadata
 ```
 
 ---
@@ -256,25 +228,29 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User
-    participant CLI as Query CLI
-    participant Search as Search Service
-    participant Query as Query Builder
+    participant CLI as Retrieve CLI (pattern)
     participant DB as Database
     participant PG as PostgreSQL
 
-    User->>CLI: dune exec bin/query.exe<br/>--pattern "queenside_majority_attack"<br/>--opening "King's Indian"<br/>--min-white-elo 2500<br/>--success-only
+    User->>CLI: dune exec bin/retrieve.exe<br/>pattern --pattern queenside_majority_attack<br/>       --eco-prefix E6 --opening-contains "King's Indian"<br/>       --min-white-elo 2500 --min-elo-diff 100 --success true
 
-    CLI->>Query: Build query
-    Query-->>CLI: SQL + params
+    CLI->>DB: query_games_with_pattern(params)
 
-    CLI->>DB: Execute pattern query
+    DB->>PG: SELECT g.game_id, g.game_date, g.result,<br/>                 pd.confidence, pd.detected_by_color, pd.metadata<br/>          FROM games g
+          JOIN pattern_detections pd ON pd.game_id = g.game_id
+          WHERE pd.pattern_id = $1
+            AND pd.success = $2
+            AND g.eco_code ILIKE $3
+            AND g.white_elo >= $4
+            AND (g.white_elo - g.black_elo) >= $5
+            AND pd.confidence >= $6
+          ORDER BY g.game_date DESC
+          LIMIT $7 OFFSET $8
 
-    DB->>PG: SELECT g.*, pd.*<br/>FROM games g<br/>JOIN pattern_detections pd<br/>JOIN pattern_catalog pc<br/>WHERE eco_code BETWEEN 'E60' AND 'E99'<br/>AND white_elo >= 2500<br/>AND pd.pattern_id = '...'<br/>AND pd.success = true
+    PG-->>DB: matching rows
+    DB-->>CLI: structured pattern_game records
 
-    PG-->>DB: matching game records
-    DB-->>CLI: game_overviews
-
-    CLI-->>User: Found X games:<br/>1. Player1 vs Player2 (E97 1-0)<br/>2. Player3 vs Player4 (E92 1-0)<br/>...
+    CLI-->>User: Rich output (table/json/csv) with confidence,<br/>colour, start/end ply, outcome, metadata
 ```
 
 ---
@@ -284,7 +260,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User
-    participant CLI as Query CLI
+    participant CLI as Retrieve CLI (similar)
     participant Search as Search Service
     participant Embed as Embedder
     participant DB as Database

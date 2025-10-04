@@ -9,7 +9,7 @@
 [![Collaboration](https://img.shields.io/badge/Collaboration-Guidelines-blue.svg)](docs/GUIDELINES.md)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/HendrikReh/chessbuddy/graphs/commit-activity)
 
-Retrieval system for chess training that combines a relational database (PGN games) with a vector database (FEN embeddings). Features position-level ingestion with FEN tracking, automatic deduplication, and semantic search capabilities.
+Retrieval system for chess training that combines a relational database (PGN games) with a vector database (FEN embeddings). Features position-level ingestion with true FEN tracking, automatic deduplication, semantic search, and an extensible pattern-detection pipeline for strategic, tactical, and endgame motifs.
 
 <p align="center">
   <a href="#components">Components</a> •
@@ -28,7 +28,8 @@ Retrieval system for chess training that combines a relational database (PGN gam
 - **PostgreSQL + pgvector**: Stores players, games, moves, and embeddings. Launch via `docker-compose up -d`.
 - **OCaml ingestion service**: Streams PGNs, preserves comments/variations/NAGs per move, generates fully evaluated FENs via the embedded chess engine, and persists relational rows plus embeddings.
 - **FEN Generator**: Drives the chess engine to emit accurate board state FEN strings while keeping side-to-move, castling rights, and en-passant squares aligned with the recorded move metadata.
-- **Schema definition**: `sql/schema.sql` can be applied to the Postgres instance to bootstrap tables, indexes, and helper views/materialized views for thematic queries.
+- **Pattern detectors**: Strategic, tactical, and endgame analysers that run during ingestion and populate the `pattern_detections` table with confidence, ply range, initiating colour, and metadata.
+- **Schema definition**: `sql/schema.sql` plus migrations bootstrap relational tables, vector indexes, and the pattern framework (`pattern_detections`, `pattern_catalog`).
 
 ### Code organisation
 
@@ -51,10 +52,10 @@ Dune keeps the modules wrapped under the `Chessbuddy` namespace (for example `Ch
 Benchmarked on [TWIC 1611](https://theweekinchess.com/twic) (4.2MB, 4,875 games):
 
 - **Ingestion**: 5:27 minutes (~15 games/sec, ~1,310 positions/sec)
-- **Positions tracked**: 428,853 move-level entries
-- **FEN deduplication**: 99.93% (301 unique positions)
+- **Positions tracked**: 428,853 move-level entries (accurate FEN snapshots for every ply)
+- **Unique FENs**: ~325k (post-dedup) with vector embeddings
 - **Players**: 2,047 with 100% FIDE ID coverage
-- **Embeddings**: 301 (one per unique FEN)
+- **Detections**: 11,400 strategic/tactical/endgame pattern rows across the dataset
 
 **Run performance benchmarks:**
 ```bash
@@ -96,7 +97,7 @@ See [benchmark/README.md](benchmark/README.md) for detailed benchmark documentat
 
 Set `OPENAI_API_KEY` before using `--enable-search-index`; the ingest CLI will abort early if the key is missing.
 
-The executable streams PGN games, generates placeholder FENs for each position, deduplicates positions, produces embeddings (via a pluggable provider), and persists metadata ready for hybrid SQL + vector search queries.
+The executable streams PGN games, generates true FENs for each position, deduplicates positions, runs all registered pattern detectors, produces embeddings (via a pluggable provider), and persists metadata ready for hybrid SQL + vector search queries.
 
 4. Inspect batches:
 
@@ -144,7 +145,7 @@ dune build @doc
 
 - **[Architecture](docs/ARCHITECTURE.md)** - System design, data flow, module organization, and key decisions
 - **[Developer Guide](docs/DEVELOPER.md)** - Setup, testing, CLI usage
-- **[Operations Guide](docs/OPERATIONS.md)** - Monitoring, troubleshooting, performance tuning, and disaster recovery
+- **[Operations Guide](docs/OPERATIONS.md)** - Monitoring, troubleshooting, pattern reanalysis, performance tuning, and disaster recovery
 - **[Contribution Guidelines](docs/GUIDELINES.md)** - Coding standards, commit conventions, and workflow
 - **[Chess Engine Status](docs/CHESS_ENGINE_STATUS.md)** - Implementation status and testing results
 - **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)** - Development roadmap and progress tracking
@@ -165,8 +166,45 @@ Use the `chessbuddy-retrieve` executable for read-side workflows:
 - `retrieve player --db-uri URI --name TEXT [--limit N]` – search players by name fragment.
 - `retrieve batch --db-uri URI [--id UUID | --label TEXT] [--limit N]` – summarize ingestion batches.
 - `retrieve export --db-uri URI --id UUID --out FILE [--k N]` – export a FEN plus optional nearest neighbours to JSON.
+- `retrieve pattern --db-uri URI --pattern ID [--detected-by COLOR] [--success BOOL] [--min-confidence F] [--max-confidence F] [--eco-prefix E] [--opening-contains TEXT] [--min-white-elo N] [--max-white-elo N] [--min-black-elo N] [--max-black-elo N] [--min-elo-diff N] [--min/--max-move-count N] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--white-name-contains TEXT] [--black-name-contains TEXT] [--result RESULT] [--output {table|json|csv}] [--output-file PATH] [--include-metadata] [--count-only] [--no-summary]` – filter games by detected strategic/tactical/endgame patterns with rich output options.
 
-**Note**: Current version (0.0.8) includes a custom chess engine implementation (`lib/chess/chess_engine.ml`) with board state tracking and FEN generation, plus comprehensive performance benchmarking tools for measuring ingestion and retrieval operations.
+**Note**: Version 0.0.8 introduces the integrated pattern-detection framework alongside the custom chess engine and benchmarking tools.
+
+## Pattern Query Examples
+
+```bash
+# King’s Indian queenside majority attack (original request)
+dune exec bin/retrieve.exe -- pattern \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --pattern queenside_majority_attack \
+  --detected-by white \
+  --success true \
+  --eco-prefix E6 \
+  --opening-contains "King's Indian" \
+  --min-white-elo 2500 \
+  --min-elo-diff 100 \
+  --min-confidence 0.7 \
+  --limit 5 \
+  --output table
+
+# Tactical motifs by Black with high confidence
+dune exec bin/retrieve.exe -- pattern \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --pattern greek_gift_sacrifice \
+  --detected-by black \
+  --success true \
+  --min-confidence 0.8 \
+  --output json --include-metadata
+
+# Endgame study export to CSV
+dune exec bin/retrieve.exe -- pattern \
+  --db-uri postgresql://chess:chess@localhost:5433/chessbuddy \
+  --pattern lucena_position --pattern philidor_position \
+  --min-move-count 60 \
+  --output csv --output-file endgames.csv
+```
+
+---
 
 ## Testing
 

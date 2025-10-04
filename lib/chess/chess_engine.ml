@@ -149,6 +149,8 @@ module Board = struct
 
   let of_fen_board fen_board =
     let board = Array.init 8 ~f:(fun _ -> Array.init 8 ~f:(fun _ -> Empty)) in
+    let white_kings = ref 0 in
+    let black_kings = ref 0 in
     let ranks = String.split ~on:'/' fen_board in
     if List.length ranks <> 8 then
       Error
@@ -157,7 +159,7 @@ module Board = struct
     else
       let rec process_ranks ranks_list rank_idx =
         match ranks_list with
-        | [] -> Ok board
+        | [] -> Ok ()
         | rank_str :: rest -> (
             let file_idx = ref 0 in
             let rank = 7 - rank_idx in
@@ -166,22 +168,49 @@ module Board = struct
               | [] -> Ok ()
               | c :: chars_rest -> (
                   if Char.is_digit c then (
-                    let skip = Char.to_int c - Char.to_int '0' in
-                    file_idx := !file_idx + skip;
-                    process_chars chars_rest)
+                    if Char.(c < '1' || c > '8') then
+                      Error
+                        (Printf.sprintf
+                           "Invalid digit '%c' in FEN rank '%s' (must be 1-8)" c
+                           rank_str)
+                    else
+                      let skip = Char.to_int c - Char.to_int '0' in
+                      file_idx := !file_idx + skip;
+                      if !file_idx > 8 then
+                        Error
+                          (Printf.sprintf
+                             "FEN board rank too long: %s (file=%d)" rank_str
+                             !file_idx)
+                      else process_chars chars_rest)
                   else
                     match piece_of_fen_char c with
                     | Error msg -> Error msg
-                    | Ok (piece_type, color) ->
+                    | Ok (piece_type, color) -> (
                         if !file_idx > 7 then
                           Error
                             (Printf.sprintf "FEN board rank too long: %s"
                                rank_str)
-                        else (
-                          board.(!file_idx).(rank) <-
-                            Piece { piece_type; color };
-                          file_idx := !file_idx + 1;
-                          process_chars chars_rest))
+                        else
+                          let () =
+                            match piece_type with
+                            | King ->
+                                if phys_equal color White then
+                                  Int.incr white_kings
+                                else Int.incr black_kings
+                            | _ -> ()
+                          in
+                          match piece_type with
+                          | Pawn when rank = 0 || rank = 7 ->
+                              Error
+                                (Printf.sprintf
+                                   "Invalid pawn placement on rank %d in FEN \
+                                    rank '%s'"
+                                   (rank + 1) rank_str)
+                          | _ ->
+                              board.(!file_idx).(rank) <-
+                                Piece { piece_type; color };
+                              file_idx := !file_idx + 1;
+                              process_chars chars_rest))
             in
             match process_chars (String.to_list rank_str) with
             | Error msg -> Error msg
@@ -192,7 +221,12 @@ module Board = struct
                        rank_str !file_idx)
                 else process_ranks rest (rank_idx + 1))
       in
-      process_ranks ranks 0
+      match process_ranks ranks 0 with
+      | Error msg -> Error msg
+      | Ok () ->
+          if !white_kings <> 1 || !black_kings <> 1 then
+            Error "FEN must contain exactly one white king and one black king"
+          else Ok board
 
   let to_string board =
     let buf = Buffer.create 256 in
@@ -640,6 +674,8 @@ module Fen = struct
     fullmove_number : int;
   }
 
+  let ( let* ) x f = Result.bind x ~f
+
   let generate ~board ~metadata =
     let board_part = Board.to_fen_board board in
     let side_part = String.of_char (color_to_fen_char metadata.side_to_move) in
@@ -679,40 +715,128 @@ module Fen = struct
      halfmove_part;
      fullmove_part;
     ] ->
-        Result.bind (Board.of_fen_board board_part) ~f:(fun board ->
-            Result.bind
-              (if String.length side_part = 1 then
-                 color_of_fen_char (String.get side_part 0)
-               else Error "Invalid side-to-move field")
-              ~f:(fun side_to_move ->
-                let castling_rights =
-                  {
-                    white_kingside = String.contains castling_part 'K';
-                    white_queenside = String.contains castling_part 'Q';
-                    black_kingside = String.contains castling_part 'k';
-                    black_queenside = String.contains castling_part 'q';
-                  }
+        let* board = Board.of_fen_board board_part in
+        let* side_to_move =
+          if String.length side_part = 1 then
+            color_of_fen_char (String.get side_part 0)
+          else Error "Invalid side-to-move field"
+        in
+        let validate_castling_string str =
+          if String.equal str "-" then Ok ()
+          else if
+            String.for_all str ~f:(function
+              | 'K' | 'Q' | 'k' | 'q' -> true
+              | _ -> false)
+          then Ok ()
+          else Error (Printf.sprintf "Invalid castling field: %s" str)
+        in
+        let* () = validate_castling_string castling_part in
+        let castling_rights =
+          {
+            white_kingside = String.contains castling_part 'K';
+            white_queenside = String.contains castling_part 'Q';
+            black_kingside = String.contains castling_part 'k';
+            black_queenside = String.contains castling_part 'q';
+          }
+        in
+        let ensure_piece file rank expected_piece expected_color msg =
+          match Board.get board ~file ~rank with
+          | Piece { piece_type; color }
+            when phys_equal piece_type expected_piece
+                 && phys_equal color expected_color ->
+              Ok ()
+          | _ -> Error msg
+        in
+        let* () =
+          if castling_rights.white_kingside then
+            let* () =
+              ensure_piece 4 0 King White
+                "Castling rights claim white king missing"
+            in
+            ensure_piece 7 0 Rook White
+              "Castling rights claim white rook missing"
+          else Ok ()
+        in
+        let* () =
+          if castling_rights.white_queenside then
+            let* () =
+              ensure_piece 4 0 King White
+                "Castling rights claim white king missing"
+            in
+            ensure_piece 0 0 Rook White
+              "Castling rights claim white rook missing"
+          else Ok ()
+        in
+        let* () =
+          if castling_rights.black_kingside then
+            let* () =
+              ensure_piece 4 7 King Black
+                "Castling rights claim black king missing"
+            in
+            ensure_piece 7 7 Rook Black
+              "Castling rights claim black rook missing"
+          else Ok ()
+        in
+        let* () =
+          if castling_rights.black_queenside then
+            let* () =
+              ensure_piece 4 7 King Black
+                "Castling rights claim black king missing"
+            in
+            ensure_piece 0 7 Rook Black
+              "Castling rights claim black rook missing"
+          else Ok ()
+        in
+        let* en_passant_square =
+          if String.equal en_passant_part "-" then Ok None
+          else
+            match square_notation_to_indices en_passant_part with
+            | Error msg -> Error msg
+            | Ok (file, rank) ->
+                let expected_rank, pawn_rank, pawn_color =
+                  match side_to_move with
+                  | White -> (5, rank - 1, Black)
+                  | Black -> (2, rank + 1, White)
                 in
-                let en_passant_square =
-                  if String.equal en_passant_part "-" then None
-                  else Some en_passant_part
-                in
-                match
-                  ( Int.of_string_opt halfmove_part,
-                    Int.of_string_opt fullmove_part )
-                with
-                | Some halfmove_clock, Some fullmove_number ->
-                    let metadata =
-                      {
-                        side_to_move;
-                        castling_rights;
-                        en_passant_square;
-                        halfmove_clock;
-                        fullmove_number;
-                      }
-                    in
-                    Ok (board, metadata)
-                | _ -> Error "Invalid halfmove or fullmove number"))
+                if rank <> expected_rank then
+                  Error
+                    (Printf.sprintf "Invalid en passant square %s for side %c"
+                       en_passant_part
+                       (color_to_fen_char side_to_move))
+                else if pawn_rank < 0 || pawn_rank > 7 then
+                  Error
+                    (Printf.sprintf
+                       "En passant square %s inconsistent with pawn placement"
+                       en_passant_part)
+                else
+                  let* () =
+                    ensure_piece file pawn_rank Pawn pawn_color
+                      (Printf.sprintf
+                         "En passant square %s has no opposing pawn"
+                         en_passant_part)
+                  in
+                  Ok (Some en_passant_part)
+        in
+        let* halfmove_clock =
+          match Int.of_string_opt halfmove_part with
+          | Some n when n >= 0 -> Ok n
+          | _ -> Error "Halfmove clock must be a non-negative integer"
+        in
+        let* fullmove_number =
+          match Int.of_string_opt fullmove_part with
+          | Some n when n >= 1 -> Ok n
+          | _ -> Error "Fullmove number must be >= 1"
+        in
+        let metadata =
+          {
+            side_to_move;
+            castling_rights;
+            en_passant_square;
+            halfmove_clock;
+            fullmove_number;
+          }
+        in
+        Ok (board, metadata)
     | _ ->
         Error
           (Printf.sprintf "Invalid FEN format: expected 6 fields, got %d"

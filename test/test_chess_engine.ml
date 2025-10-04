@@ -129,6 +129,27 @@ let test_fen_parsing_and_generation () =
       let fen_roundtrip = Chess_engine.Fen.generate ~board ~metadata in
       Alcotest.(check string) "FEN round-trip" fen fen_roundtrip
 
+let test_invalid_fen_cases () =
+  let expect_error label fen =
+    match Chess_engine.Fen.validate fen with
+    | Ok () -> Alcotest.failf "%s: expected validation failure" label
+    | Error _ -> ()
+  in
+  expect_error "invalid digit"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPP9/RNBQKBNR w KQkq - 0 1";
+  expect_error "pawn on first rank"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNp w KQkq - 0 1";
+  expect_error "missing rook for castling"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBN1 w K - 0 1";
+  expect_error "invalid en passant square"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq e9 0 1";
+  expect_error "en passant rank mismatch"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq e3 0 1";
+  expect_error "negative halfmove"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - -1 1";
+  expect_error "zero fullmove"
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0"
+
 let test_castling_rights_encoding () =
   let board = Chess_engine.Board.initial in
   (* Test all castling rights *)
@@ -599,6 +620,7 @@ let suite =
     ("FEN board serialization", `Quick, test_fen_board_serialization);
     ("FEN board parsing", `Quick, test_fen_board_parsing);
     ("FEN parsing and generation", `Quick, test_fen_parsing_and_generation);
+    ("FEN validation rejects invalid inputs", `Quick, test_invalid_fen_cases);
     ("Castling rights encoding", `Quick, test_castling_rights_encoding);
     ("Square notation conversion", `Quick, test_square_notation_conversion);
     ("Board set and get", `Quick, test_board_set_and_get);

@@ -1,7 +1,7 @@
 # ChessBuddy
 
 [![OCaml](https://img.shields.io/badge/OCaml-%3E%3D%205.1-orange.svg)](https://ocaml.org)
-[![Version](https://img.shields.io/badge/Version-0.0.8-blue.svg)](RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/Version-0.0.9-blue.svg)](RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/Status-Proof%20of%20Concept-yellow.svg)](https://github.com/HendrikReh/chessbuddy)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/HendrikReh/chessbuddy/ci.yml?branch=main)](https://github.com/HendrikReh/chessbuddy/actions)
 [![License](https://img.shields.io/github/license/HendrikReh/chessbuddy)](LICENSE)

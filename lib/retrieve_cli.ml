@@ -1,6 +1,7 @@
 open! Base
 open Cmdliner
 open Chessbuddy
+open Lwt.Infix
 module Fmt = Stdlib.Format
 module Yojson = Yojson.Safe
 
@@ -401,10 +402,62 @@ let player_action uri name limit =
 
 let option_to_yojson f = function None -> `Null | Some v -> f v
 
-let pattern_action uri pattern_ids detected_by success min_confidence eco_prefix
-    opening_substring min_white_elo min_rating_diff min_move_count start_date
-    end_date white_name_substring black_name_substring result_filter
-    output_format limit offset =
+let with_output_channel output_file ~binary f =
+  match output_file with
+  | None ->
+      let* () = f Stdlib.stdout in
+      Stdlib.flush Stdlib.stdout;
+      Lwt.return_unit
+  | Some path ->
+      let oc = if binary then Stdlib.open_out_bin path else Stdlib.open_out path in
+      Lwt.finalize
+        (fun () ->
+          let* () = f oc in
+          Stdlib.flush oc;
+          Lwt.return_unit)
+        (fun () ->
+          Stdlib.close_out_noerr oc;
+          Lwt.return_unit)
+
+let summarize (games : Database.pattern_game list) =
+  let count = List.length games in
+  let total_confidence =
+    List.fold games ~init:0.0 ~f:(fun acc game -> acc +. game.confidence)
+  in
+  let avg_confidence =
+    if Int.equal count 0 then 0.0 else total_confidence /. Float.of_int count
+  in
+  let white_count =
+    List.count games ~f:(fun game -> Poly.equal game.detected_by Chess_engine.White)
+  in
+  let black_count = count - white_count in
+  let color_summary =
+    Stdlib.Printf.sprintf "white=%d, black=%d" white_count black_count
+  in
+  let dates = List.filter_map games ~f:(fun game -> game.game_date) in
+  let date_summary =
+    match
+      ( List.min_elt dates ~compare:Ptime.compare,
+        List.max_elt dates ~compare:Ptime.compare )
+    with
+    | None, _ -> ""
+    | Some first, Some last when Ptime.compare first last = 0 ->
+        Stdlib.Printf.sprintf ", date %s" (format_date_opt (Some first))
+    | Some first, Some last ->
+        Stdlib.Printf.sprintf ", dates %s→%s"
+          (format_date_opt (Some first)) (format_date_opt (Some last))
+    | _ -> ""
+  in
+  Stdlib.Printf.sprintf
+    "Matched %d game(s). Avg confidence %.2f. Detected by %s%s."
+    count avg_confidence color_summary date_summary
+
+let pattern_action uri pattern_ids detected_by success min_confidence
+    max_confidence eco_prefix opening_substring min_white_elo max_white_elo
+    min_black_elo max_black_elo min_rating_diff min_move_count max_move_count
+    start_date end_date white_name_substring black_name_substring result_filter
+    output_format output_file include_metadata count_only suppress_summary limit
+    offset =
   let action () =
     if List.is_empty pattern_ids then (
       Fmt.printf "Provide at least one --pattern identifier.@.";
@@ -413,24 +466,41 @@ let pattern_action uri pattern_ids detected_by success min_confidence eco_prefix
       Ingestion_pipeline.with_pool uri (fun pool ->
           let* games_res =
             Database.query_games_with_pattern pool ~pattern_ids ~detected_by
-              ~success ~min_confidence ~eco_prefix ~opening_substring
-              ~min_white_elo ~min_rating_difference:min_rating_diff
-              ~min_move_count ~start_date ~end_date ~white_name_substring
-              ~black_name_substring ~result_filter ~limit ~offset
+              ~success ~min_confidence ~max_confidence ~eco_prefix
+              ~opening_substring ~min_white_elo ~max_white_elo ~min_black_elo
+              ~max_black_elo ~min_rating_difference:min_rating_diff
+              ~min_move_count ~max_move_count ~start_date ~end_date
+              ~white_name_substring ~black_name_substring ~result_filter ~limit
+              ~offset
           in
           let* games = fail_on_error games_res in
+          let summary_text = summarize games in
           if List.is_empty games then (
-            Fmt.printf "No games matched the provided filters.@.";
+            if not suppress_summary then Fmt.printf "%s@." summary_text;
+            Lwt.return_unit)
+          else if count_only then (
+            (match output_file with
+            | Some path ->
+                Fmt.eprintf
+                  "Ignoring --output-file=%s in count-only mode.@." path
+            | None -> ());
+            if not suppress_summary then Fmt.printf "%s@." summary_text;
             Lwt.return_unit)
           else
-            match output_format with
-            | Table ->
-                Fmt.printf
-                  "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5s  %-6s  %-8s  \
-                   %-36s@."
-                  "Date" "Event" "ECO" "White" "Black" "Res" "Moves" "Color"
-                  "Conf" "Game ID";
-                let () =
+            let count = List.length games in
+            let* () =
+              match output_format with
+              | Table ->
+                  (match output_file with
+                  | Some path ->
+                      Fmt.eprintf
+                        "Ignoring --output-file=%s for table output; use --output json or --output csv.@."
+                        path
+                  | None -> ());
+                  Fmt.printf
+                    "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5s  %-6s  %-8s  %-36s@."
+                    "Date" "Event" "ECO" "White" "Black" "Res" "Moves"
+                    "Color" "Conf" "Game ID";
                   List.iter games ~f:(fun game ->
                       let date_str = format_date_opt game.game_date in
                       let event =
@@ -441,86 +511,135 @@ let pattern_action uri pattern_ids detected_by success min_confidence eco_prefix
                       let eco = Option.value ~default:"-" game.eco in
                       let white = truncate 18 game.white_player in
                       let black = truncate 18 game.black_player in
-                      let conf = Printf.sprintf "%.2f" game.confidence in
+                      let conf = Stdlib.Printf.sprintf "%.2f" game.confidence in
                       let outcome = Option.value ~default:"-" game.outcome in
                       Fmt.printf
-                        "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5d  %-6s  \
-                         %-8s  %-36s@."
+                        "%-10s  %-20s  %-5s  %-18s  %-18s  %-5s  %-5d  %-6s  %-8s  %-36s@."
                         date_str event eco white black game.result
                         game.move_count
                         (color_to_string game.detected_by)
-                        (Printf.sprintf "%s/%s" conf outcome)
+                        (Stdlib.Printf.sprintf "%s/%s" conf outcome)
                         (Uuidm.to_string game.game_id);
                       Option.iter game.opening ~f:(fun opening ->
                           Fmt.printf "            Opening: %s@."
-                            (truncate 80 opening)))
-                in
-                Lwt.return_unit
-            | Json ->
-                let json =
-                  `List
-                    (List.map games ~f:(fun game ->
-                         `Assoc
-                           [
-                             ("game_id", `String (Uuidm.to_string game.game_id));
-                             ( "game_date",
-                               option_to_yojson
-                                 (fun t ->
-                                   let year, month, day = Ptime.to_date t in
-                                   `String
-                                     (Printf.sprintf "%04d-%02d-%02d" year month
-                                        day))
-                                 game.game_date );
-                             ( "event",
-                               option_to_yojson (fun s -> `String s) game.event
-                             );
-                             ( "eco",
-                               option_to_yojson (fun s -> `String s) game.eco );
-                             ( "opening",
-                               option_to_yojson
-                                 (fun s -> `String s)
-                                 game.opening );
-                             ("white_player", `String game.white_player);
-                             ("black_player", `String game.black_player);
-                             ("result", `String game.result);
-                             ("move_count", `Int game.move_count);
-                             ( "detected_by",
-                               `String (color_to_string game.detected_by) );
-                             ("confidence", `Float game.confidence);
-                             ( "outcome",
-                               option_to_yojson
-                                 (fun s -> `String s)
-                                 game.outcome );
-                           ]))
-                in
-                Yojson.pretty_to_channel Stdlib.stdout json;
-                Stdlib.output_char Stdlib.stdout '\n';
-                Lwt.return_unit
-            | Csv ->
-                let escape_csv s =
-                  String.substr_replace_all s ~pattern:"\"" ~with_:"\"\""
-                in
-                Stdlib.print_endline
-                  "date,event,eco,opening,white,black,result,moves,detected_by,confidence,outcome,game_id";
-                let () =
-                  List.iter games ~f:(fun game ->
-                      let date_str = format_date_opt game.game_date in
-                      let event = Option.value ~default:"" game.event in
-                      let opening = Option.value ~default:"" game.opening in
-                      let eco = Option.value ~default:"" game.eco in
-                      let outcome = Option.value ~default:"" game.outcome in
-                      Stdlib.Printf.printf
-                        "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,\"%s\",%.4f,\"%s\",\"%s\"@."
-                        (escape_csv date_str) (escape_csv event)
-                        (escape_csv eco) (escape_csv opening)
-                        (escape_csv game.white_player)
-                        (escape_csv game.black_player)
-                        (escape_csv game.result) game.move_count
-                        (escape_csv (color_to_string game.detected_by))
-                        game.confidence (escape_csv outcome)
-                        (escape_csv (Uuidm.to_string game.game_id)))
-                in
-                Lwt.return_unit)
+                            (truncate 80 opening));
+                      Option.iter game.start_ply ~f:(fun sp ->
+                          Fmt.printf "            Start ply: %d@." sp);
+                      Option.iter game.end_ply ~f:(fun ep ->
+                          Fmt.printf "            End ply: %d@." ep);
+                      if include_metadata then
+                        Fmt.printf "            Metadata: %s@."
+                          (Yojson.to_string game.metadata);
+                      Fmt.printf "@.")
+                  |> Lwt.return
+              | Json ->
+                  let json =
+                    `List
+                      (List.map games ~f:(fun game ->
+                           `Assoc
+                             [
+                               ( "game_id",
+                                 `String (Uuidm.to_string game.game_id) );
+                               ( "game_date",
+                                 option_to_yojson
+                                   (fun t ->
+                                     let year, month, day = Ptime.to_date t in
+                                     `String
+                                       (Stdlib.Printf.sprintf "%04d-%02d-%02d" year month
+                                          day))
+                                   game.game_date );
+                               ( "event",
+                                 option_to_yojson (fun s -> `String s) game.event
+                               );
+                               ( "eco",
+                                 option_to_yojson (fun s -> `String s) game.eco );
+                               ( "opening",
+                                 option_to_yojson (fun s -> `String s) game.opening
+                               );
+                               ("white_player", `String game.white_player);
+                               ("black_player", `String game.black_player);
+                               ("result", `String game.result);
+                               ("move_count", `Int game.move_count);
+                               ( "detected_by",
+                                 `String (color_to_string game.detected_by) );
+                               ("confidence", `Float game.confidence);
+                               ( "outcome",
+                                 option_to_yojson (fun s -> `String s) game.outcome
+                               );
+                               ( "start_ply",
+                                 option_to_yojson (fun i -> `Int i) game.start_ply
+                               );
+                               ( "end_ply",
+                                 option_to_yojson (fun i -> `Int i) game.end_ply );
+                               ("metadata", game.metadata);
+                             ]))
+                  in
+                  with_output_channel output_file ~binary:true (fun oc ->
+                      Yojson.pretty_to_channel oc json;
+                      Stdlib.output_char oc '\n';
+                      Lwt.return_unit)
+                  >>= fun () ->
+                  (match output_file with
+                  | Some path ->
+                      Fmt.printf "Wrote %d game(s) to %s@." count path
+                  | None -> ());
+                  Lwt.return_unit
+              | Csv ->
+                  let escape_csv s =
+                    String.substr_replace_all s ~pattern:"\"" ~with_:"\"\""
+                  in
+                  let header =
+                    "date,event,eco,opening,white,black,result,moves,detected_by,confidence,outcome,start_ply,end_ply"
+                    ^
+                    (if include_metadata then ",metadata" else "")
+                    ^ ",game_id"
+                  in
+                  with_output_channel output_file ~binary:false (fun oc ->
+                      Stdlib.output_string oc header;
+                      Stdlib.output_char oc '\n';
+                      List.iter games ~f:(fun game ->
+                          let date_str = format_date_opt game.game_date in
+                          let event = Option.value ~default:"" game.event in
+                          let opening = Option.value ~default:"" game.opening in
+                          let eco = Option.value ~default:"" game.eco in
+                          let outcome = Option.value ~default:"" game.outcome in
+                          let start_ply_str =
+                            Option.value_map game.start_ply ~default:""
+                              ~f:Int.to_string
+                          in
+                          let end_ply_str =
+                            Option.value_map game.end_ply ~default:""
+                              ~f:Int.to_string
+                          in
+                          let metadata_str =
+                            if include_metadata then
+                              Yojson.to_string game.metadata
+                            else ""
+                          in
+                          Stdlib.Printf.fprintf oc
+                            "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,\"%s\",%.4f,\"%s\",%s,%s%s\"%s\"@."
+                            (escape_csv date_str) (escape_csv event)
+                            (escape_csv eco) (escape_csv opening)
+                            (escape_csv game.white_player)
+                            (escape_csv game.black_player)
+                            (escape_csv game.result) game.move_count
+                            (escape_csv (color_to_string game.detected_by))
+                            game.confidence (escape_csv outcome)
+                            start_ply_str end_ply_str
+                            (if include_metadata then
+                               "," ^ escape_csv metadata_str
+                             else ",")
+                            (escape_csv (Uuidm.to_string game.game_id)));
+                      Lwt.return_unit)
+                  >>= fun () ->
+                  (match output_file with
+                  | Some path ->
+                      Fmt.printf "Wrote %d game(s) to %s@." count path
+                  | None -> ());
+                  Lwt.return_unit
+            in
+            if not suppress_summary then Fmt.printf "%s@." summary_text;
+            Lwt.return_unit)
   in
   run_lwt action
 
@@ -827,6 +946,13 @@ let pattern_cmd =
       & info [ "min-confidence" ] ~doc:"Minimum detector confidence threshold"
           ~docv:"FLOAT")
   in
+  let max_confidence =
+    Arg.(
+      value
+      & opt (some float) None
+      & info [ "max-confidence" ] ~doc:"Maximum detector confidence threshold"
+          ~docv:"FLOAT")
+  in
   let eco_prefix =
     Arg.(
       value
@@ -848,6 +974,27 @@ let pattern_cmd =
       & info [ "min-white-elo" ] ~doc:"Minimum white Elo rating required"
           ~docv:"ELO")
   in
+  let max_white_elo =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "max-white-elo" ] ~doc:"Maximum white Elo rating allowed"
+          ~docv:"ELO")
+  in
+  let min_black_elo =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "min-black-elo" ] ~doc:"Minimum black Elo rating required"
+          ~docv:"ELO")
+  in
+  let max_black_elo =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "max-black-elo" ] ~doc:"Maximum black Elo rating allowed"
+          ~docv:"ELO")
+  in
   let min_rating_diff =
     Arg.(
       value
@@ -861,6 +1008,13 @@ let pattern_cmd =
       & opt (some int) None
       & info [ "min-move-count" ]
           ~doc:"Minimum number of recorded moves (plies)" ~docv:"N")
+  in
+  let max_move_count =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "max-move-count" ]
+          ~doc:"Maximum number of recorded moves (plies)" ~docv:"N")
   in
   let start_date =
     Arg.(
@@ -903,6 +1057,36 @@ let pattern_cmd =
       & info [ "output" ] ~doc:"Output format: table (default), json, or csv"
           ~docv:"FORMAT")
   in
+  let output_file =
+    Arg.(
+      value
+      & opt (some file) None
+      & info [ "output-file" ]
+          ~doc:
+            "Write results to file (supported for json or csv output formats)"
+          ~docv:"PATH")
+  in
+  let include_metadata =
+    Arg.(
+      value
+      & flag
+      & info [ "include-metadata" ]
+          ~doc:"Include detector metadata column/details in outputs")
+  in
+  let count_only =
+    Arg.(
+      value
+      & flag
+      & info [ "count-only" ]
+          ~doc:"Only report summary statistics (skip individual game rows)")
+  in
+  let suppress_summary =
+    Arg.(
+      value
+      & flag
+      & info [ "no-summary" ]
+          ~doc:"Suppress summary footer (useful for scripting)")
+  in
   let limit =
     Arg.(value & opt int 10 & info [ "limit" ] ~doc:"Maximum games to return")
   in
@@ -913,10 +1097,12 @@ let pattern_cmd =
     Term.(
       ret
         (const pattern_action $ db_uri $ patterns $ detected_by $ success_flag
-       $ min_confidence $ eco_prefix $ opening_contains $ min_white_elo
-       $ min_rating_diff $ min_move_count $ start_date $ end_date
-       $ white_name_contains $ black_name_contains $ result_filter
-       $ output_format $ limit $ offset))
+       $ min_confidence $ max_confidence $ eco_prefix $ opening_contains
+       $ min_white_elo $ max_white_elo $ min_black_elo $ max_black_elo
+       $ min_rating_diff $ min_move_count $ max_move_count $ start_date
+       $ end_date $ white_name_contains $ black_name_contains $ result_filter
+       $ output_format $ output_file $ include_metadata $ count_only
+       $ suppress_summary $ limit $ offset))
   in
   Cmd.v info term
 

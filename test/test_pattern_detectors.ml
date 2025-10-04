@@ -153,12 +153,13 @@ let test_ingestion_records_pattern _switch () =
         Database.query_games_with_pattern pool
           ~pattern_ids:[ "queenside_majority_attack" ]
           ~detected_by:(Some Chess_engine.White) ~success:true
-          ~min_confidence:(Some 0.5) ~eco_prefix:(Some "E")
+          ~min_confidence:(Some 0.5) ~max_confidence:None ~eco_prefix:(Some "E")
           ~opening_substring:(Some "King's") ~min_white_elo:(Some 2500)
+          ~max_white_elo:None ~min_black_elo:None ~max_black_elo:None
           ~min_rating_difference:(Some 100) ~min_move_count:(Some 4)
-          ~start_date:None ~end_date:None ~white_name_substring:(Some "GM")
-          ~black_name_substring:(Some "IM") ~result_filter:(Some "1-0")
-          ~limit:10 ~offset:0
+          ~max_move_count:None ~start_date:None ~end_date:None
+          ~white_name_substring:(Some "GM") ~black_name_substring:(Some "IM")
+          ~result_filter:(Some "1-0") ~limit:10 ~offset:0
         >>= function
         | Ok rows -> Lwt.return rows
         | Error err ->

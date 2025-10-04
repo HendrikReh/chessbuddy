@@ -220,6 +220,9 @@ type pattern_game = {
   detected_by : Chess_engine.color;
   confidence : float;
   outcome : string option;
+  start_ply : int option;
+  end_ply : int option;
+  metadata : Yojson.Safe.t;
 }
 
 type player_overview = {
@@ -634,32 +637,52 @@ let date_to_string = function
       Some (Printf.sprintf "%04d-%02d-%02d" year month day)
 
 let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
-    ~min_confidence ~eco_prefix ~opening_substring ~min_white_elo
-    ~min_rating_difference ~min_move_count ~start_date ~end_date
-    ~white_name_substring ~black_name_substring ~result_filter ~limit ~offset =
+    ~min_confidence ~max_confidence ~eco_prefix ~opening_substring
+    ~min_white_elo ~max_white_elo ~min_black_elo ~max_black_elo
+    ~min_rating_difference ~min_move_count ~max_move_count ~start_date
+    ~end_date ~white_name_substring ~black_name_substring ~result_filter ~limit
+    ~offset =
   let open Caqti_request.Infix in
   let params_type =
     let open Caqti_type in
-    t2 string_array
-      (t2 bool
-         (t2 float
-            (t2 (option string)
-               (t2 (option string)
-                  (t2 (option string)
-                     (t2 (option int)
-                        (t2 (option int)
-                           (t2 (option int)
-                              (t2 (option string)
-                                 (t2 (option string)
-                                    (t2 (option string)
-                                       (t2 (option string)
-                                          (t2 (option string) (t2 int int))))))))))))))
+    let base = t2 int int in
+    let base = t2 (option string) base in (* result_filter *)
+    let base = t2 (option string) base in (* black_name_substring *)
+    let base = t2 (option string) base in (* white_name_substring *)
+    let base = t2 (option string) base in (* end_date *)
+    let base = t2 (option string) base in (* start_date *)
+    let base = t2 (option int) base in (* max_move_count *)
+    let base = t2 (option int) base in (* min_move_count *)
+    let base = t2 (option int) base in (* min_rating_difference *)
+    let base = t2 (option int) base in (* max_black_elo *)
+    let base = t2 (option int) base in (* min_black_elo *)
+    let base = t2 (option int) base in (* max_white_elo *)
+    let base = t2 (option int) base in (* min_white_elo *)
+    let base = t2 (option string) base in (* opening_substring *)
+    let base = t2 (option string) base in (* eco_prefix *)
+    let base = t2 (option string) base in (* detected_by *)
+    let base = t2 (option float) base in (* max_confidence *)
+    let base = t2 float base in (* min_confidence *)
+    let base = t2 bool base in (* success flag *)
+    t2 string_array base
   in
   let query =
     (params_type
     -->* Caqti_type.(
-           t12 uuid (option date) (option string) string string string int
-             (option string) (option string) string float (option string)))
+           t2 uuid
+             (t2 (option date)
+                (t2 (option string)
+                   (t2 string
+                      (t2 string
+                         (t2 string
+                            (t2 int
+                               (t2 (option string)
+                                  (t2 (option string)
+                                     (t2 string
+                                        (t2 float
+                                           (t2 (option string)
+                                              (t2 (option int)
+                                                 (t2 (option int) string))))))))))))))
     @:- {sql|
       SELECT g.game_id,
              g.game_date,
@@ -672,7 +695,10 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
              g.opening_name,
              pd.detected_by_color,
              pd.confidence,
-             pd.outcome
+             pd.outcome,
+             pd.start_ply,
+             pd.end_ply,
+             pd.metadata::text
       FROM games g
       JOIN players w ON g.white_id = w.player_id
       JOIN players b ON g.black_id = b.player_id
@@ -685,12 +711,17 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
       WHERE pd.pattern_id = ANY (?)
         AND pd.success = ?
         AND pd.confidence >= ?
+        AND pd.confidence <= COALESCE(?::float, pd.confidence)
         AND COALESCE(?::text, pd.detected_by_color) = pd.detected_by_color
         AND COALESCE(g.eco_code, '') ILIKE COALESCE(?::text, COALESCE(g.eco_code, ''))
         AND COALESCE(g.opening_name, '') ILIKE COALESCE(?::text, COALESCE(g.opening_name, ''))
         AND COALESCE(?::int, -2147483647) <= COALESCE(g.white_elo, -2147483647)
+        AND COALESCE(g.white_elo, 2147483647) <= COALESCE(?::int, COALESCE(g.white_elo, 2147483647))
+        AND COALESCE(?::int, -2147483647) <= COALESCE(g.black_elo, -2147483647)
+        AND COALESCE(g.black_elo, 2147483647) <= COALESCE(?::int, COALESCE(g.black_elo, 2147483647))
         AND COALESCE(?::int, -2147483647) <= COALESCE(g.white_elo - g.black_elo, -2147483647)
         AND COALESCE(?::int, -2147483647) <= COALESCE(mc.move_count, -2147483647)
+        AND COALESCE(mc.move_count, 2147483647) <= COALESCE(?::int, COALESCE(mc.move_count, 2147483647))
         AND g.game_date >= COALESCE(?::date, g.game_date)
         AND g.game_date <= COALESCE(?::date, g.game_date)
         AND w.full_name ILIKE COALESCE(?::text, w.full_name)
@@ -698,7 +729,7 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
         AND g.result = COALESCE(?::text, g.result)
       ORDER BY g.game_date DESC, g.ingested_at DESC
       LIMIT ? OFFSET ?
-    |sql}
+    |sql})
   in
   let detected_by_param = Option.map detected_by ~f:color_to_text in
   let min_conf = Option.value ~default:0.0 min_confidence in
@@ -714,21 +745,29 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
   in
   let start_date_str = date_to_string start_date in
   let end_date_str = date_to_string end_date in
+  let pattern_ids_array = Array.of_list pattern_ids in
   let params =
-    ( Array.of_list pattern_ids,
-      ( success,
-        ( min_conf,
-          ( detected_by_param,
-            ( eco_like,
-              ( opening_like,
-                ( min_white_elo,
-                  ( min_rating_difference,
-                    ( min_move_count,
-                      ( start_date_str,
-                        ( end_date_str,
-                          ( white_like,
-                            (black_like, (result_filter, (limit, offset))) ) )
-                      ) ) ) ) ) ) ) ) ) )
+    let base = (limit, offset) in
+    let base = (result_filter, base) in
+    let base = (black_like, base) in
+    let base = (white_like, base) in
+    let base = (end_date_str, base) in
+    let base = (start_date_str, base) in
+    let base = (max_move_count, base) in
+    let base = (min_move_count, base) in
+    let base = (min_rating_difference, base) in
+    let base = (max_black_elo, base) in
+    let base = (min_black_elo, base) in
+    let base = (max_white_elo, base) in
+    let base = (min_white_elo, base) in
+    let base = (opening_like, base) in
+    let base = (eco_like, base) in
+    let base = (detected_by_param, base) in
+    let base = (max_confidence, base) in
+    let base = (min_conf, base) in
+    let base = (success, base) in
+    let base = (pattern_ids_array, base) in
+    base
   in
   let open Lwt_result.Syntax in
   let* rows =
@@ -737,19 +776,23 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
   in
   let games =
     List.map rows ~f:(fun row ->
-        let ( game_id,
-              game_date,
-              event,
-              white_player,
-              black_player,
-              result,
-              move_count,
-              eco,
-              opening,
-              detected_by_color,
-              confidence,
-              outcome ) =
-          row
+        let game_id, rest = row in
+        let game_date, rest = rest in
+        let event, rest = rest in
+        let white_player, rest = rest in
+        let black_player, rest = rest in
+        let result, rest = rest in
+        let move_count, rest = rest in
+        let eco, rest = rest in
+        let opening, rest = rest in
+        let detected_by_color, rest = rest in
+        let confidence, rest = rest in
+        let outcome, rest = rest in
+        let start_ply, rest = rest in
+        let end_ply, metadata_text = rest in
+        let metadata =
+          try Yojson.Safe.from_string metadata_text
+          with Yojson.Json_error _ -> `String metadata_text
         in
         {
           game_id;
@@ -765,6 +808,9 @@ let query_games_with_pattern pool ~pattern_ids ~detected_by ~success
           detected_by = color_of_text detected_by_color;
           confidence;
           outcome;
+          start_ply;
+          end_ply;
+          metadata;
         })
   in
   Lwt.return_ok games

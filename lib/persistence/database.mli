@@ -126,6 +126,9 @@ type pattern_game = {
   detected_by : Chess_engine.color;
   confidence : float;
   outcome : string option;
+  start_ply : int option;
+  end_ply : int option;
+  metadata : Yojson.Safe.t;
 }
 (** Summary view for game listings *)
 
@@ -385,11 +388,16 @@ val query_games_with_pattern :
   detected_by:Chess_engine.color option ->
   success:bool ->
   min_confidence:float option ->
+  max_confidence:float option ->
   eco_prefix:string option ->
   opening_substring:string option ->
   min_white_elo:int option ->
+  max_white_elo:int option ->
+  min_black_elo:int option ->
+  max_black_elo:int option ->
   min_rating_difference:int option ->
   min_move_count:int option ->
+  max_move_count:int option ->
   start_date:Ptime.t option ->
   end_date:Ptime.t option ->
   white_name_substring:string option ->

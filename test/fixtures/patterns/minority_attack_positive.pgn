@@ -1,0 +1,13 @@
+[Event "Minority Attack Fixture 1"]
+[Site "Test Suite"]
+[Date "2024.01.03"]
+[Round "1"]
+[White "GM Minority"]
+[Black "IM Defender"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "6k1/ppp5/8/8/8/PP6/8/4K3 w - - 0 1"]
+[ECO "A40"]
+[Opening "Queen's Pawn Game"]
+
+1. b4 c6 2. b5 a6 3. bxc6 1-0

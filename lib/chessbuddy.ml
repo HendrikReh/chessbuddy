@@ -9,6 +9,7 @@ module Search_indexer = Search_indexer
 module Search_embedder = Search_embedder
 module Search_service = Search_service
 module Chess_engine = Chess_engine
+module Fen_generator = Fen_generator
 module Patterns = Patterns
 module Pattern_detector = Pattern_detector
 module Strategic_patterns = Strategic_patterns

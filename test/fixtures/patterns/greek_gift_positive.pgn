@@ -1,0 +1,13 @@
+[Event "Greek Gift Fixture 1"]
+[Site "Test Suite"]
+[Date "2024.01.05"]
+[Round "1"]
+[White "GM Sacrifice"]
+[Black "IM Defender"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "r1bqk2r/pppp1ppp/2n2nB1/3Pp3/8/2N2N2/PPP2PPP/R2Q1RK1 w kq - 0 1"]
+[ECO "C68"]
+[Opening "Ruy Lopez"]
+
+1. Bxh7+ Nxh7 2. dxc6 bxc6 3. Qxd8+ Kxd8 4. Nxe5 Ke8 5. Nxc6 1-0

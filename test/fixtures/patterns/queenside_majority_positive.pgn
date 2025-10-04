@@ -1,0 +1,13 @@
+[Event "Queenside Majority Fixture 1"]
+[Site "Test Suite"]
+[Date "2024.01.01"]
+[Round "1"]
+[White "GM Pattern"]
+[Black "IM Defensor"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "6k1/8/pp6/8/PPP5/8/8/4K3 w - - 0 1"]
+[ECO "E90"]
+[Opening "King's Indian Defence"]
+
+1. b5 Kh8 2. bxa6 Kg7 1-0

@@ -1,0 +1,13 @@
+[Event "Lucena Fixture 1"]
+[Site "Test Suite"]
+[Date "2024.01.07"]
+[Round "1"]
+[White "Endgame Expert"]
+[Black "Defender"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "4k2r/4P3/8/8/8/8/8/R3K3 w Q - 0 1"]
+[ECO "A00"]
+[Opening "Endgame Setup"]
+
+1. Ra7 Rh1+ 2. Ke2 Rh2+ 3. Ke3 Rh3+ 4. Kd4 Rh4+ 5. Kd5 1-0

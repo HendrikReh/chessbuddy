@@ -1,5 +1,42 @@
 # Release Notes
 
+## Version 0.0.9 – Documentation Consolidation & Architecture Updates
+
+### Overview
+Consolidates pattern detection documentation, adds comprehensive architecture diagrams, and updates all developer guides to reflect the current system state. Improves maintainability and onboarding experience.
+
+### Highlights
+- **Documentation consolidation**: Merged `IMPLEMENTATION_PLAN.md` and `GENERALIZATION_SUMMARY.md` into unified implementation guide (v3.1)
+- **Architecture visualization**: Complete Mermaid diagram suite covering system components, data flows, and sequence diagrams
+- **CLAUDE.md refresh**: Updated project guide with pattern detection framework, current CLI commands, and workflow documentation
+- **Status tracking**: Clear milestone status and next-action checklists for validation/operations work
+
+### Changes
+
+#### Documentation Updates
+- **IMPLEMENTATION_PLAN.md v3.1**: Condensed plan reflecting completed milestones (M1-M4) and remaining validation/operations work
+- **ARCHITECTURE_DIAGRAM.md**: 8 Mermaid diagrams visualizing system architecture, ingestion flow, retrieval flow, pattern detection, and database schema
+- **CLAUDE.md**: Comprehensive update including pattern detection system, CLI examples, module structure, and troubleshooting guide
+
+#### Documentation Removed
+- **GENERALIZATION_SUMMARY.md**: Content merged into IMPLEMENTATION_PLAN.md v3.1
+
+### Breaking Changes
+None - documentation-only release.
+
+### Migration Notes
+No migration required. All changes are documentation updates that reflect the existing v0.0.8 codebase state.
+
+### Related Documentation
+- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) - Unified pattern detection roadmap
+- [Architecture Diagrams](docs/ARCHITECTURE_DIAGRAM.md) - Visual system documentation
+- [CLAUDE.md](CLAUDE.md) - Developer guide for AI assistants (Claude Code)
+- [AGENTS.md](AGENTS.md) - Developer guide for AI assistants (Codex)
+- [Chess Engine Status](docs/CHESS_ENGINE_STATUS.md) - Implementation details
+- [Chess Library Evaluation](docs/CHESS_LIBRARY_EVALUATION.md) - Library analysis
+
+---
+
 ## Version 0.0.8 – Pattern Detection & Library Modularisation
 
 ### Overview
